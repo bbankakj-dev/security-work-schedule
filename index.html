@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Security Work Schedule</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Google Fonts Prompt -->
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Prompt', sans-serif; }
+    .table-container { max-height: 72vh; }
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 antialiased min-h-screen">
+  <div id="app" v-cloak class="flex flex-col min-h-screen">
+    
+    <!-- Top Header -->
+    <header class="bg-slate-900 text-white shadow-md sticky top-0 z-50 border-b border-amber-500">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-wrap items-center justify-between gap-4">
+        <div class="flex items-center space-x-3">
+          <div class="w-10 h-10 rounded-lg bg-amber-500 flex items-center justify-center font-bold text-slate-950 text-xl shadow">
+            CT
+          </div>
+          <div>
+            <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+              Security Work Schedule
+              <span class="text-xs bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded border border-amber-500/30">GDDL 5/2</span>
+            </h1>
+            <p class="text-xs text-slate-400">ระบบบริหารตารางเวร รปภ., ขอสแปร์ & สรุปตัดรอบเงินเดือน</p>
+          </div>
+        </div>
+
+        <!-- Role & Auth Status -->
+        <div class="flex items-center space-x-3">
+          <div v-if="isAdmin" class="flex items-center gap-2 bg-emerald-950 border border-emerald-500/40 text-emerald-300 text-xs px-3 py-1.5 rounded-full font-medium">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            สิทธิ์: Supervisor / Site Manager (แก้ไขได้)
+            <button @click="logout" class="ml-2 underline text-slate-300 hover:text-white">ออกจากระบบ</button>
+          </div>
+          <div v-else class="flex items-center gap-2 bg-slate-800 border border-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-full">
+            <span class="w-2 h-2 rounded-full bg-slate-400"></span>
+            สิทธิ์: รปภ. ทั่วไป (ดูตารางอย่างเดียว)
+            <button @click="showLoginModal = true" class="ml-2 bg-amber-500 hover:bg-amber-400 text-slate-950 px-2.5 py-0.5 rounded font-semibold transition">
+              เข้าสู่ระบบ Sup
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Navigation & Cycle Bar -->
+    <div class="bg-white border-b border-slate-200 shadow-sm sticky top-[65px] z-40">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-3 py-2.5">
+        
+        <!-- Navigation Tabs -->
+        <nav class="flex space-x-1 sm:space-x-2 overflow-x-auto text-sm font-medium">
+          <button @click="currentTab = 'schedule'" :class="tabClass('schedule')" class="px-3 py-2 rounded-lg flex items-center gap-2 transition">
+            📅 ตารางเวรรวม 39 คน
+          </button>
+          <button @click="currentTab = 'spare'" :class="tabClass('spare')" class="px-3 py-2 rounded-lg flex items-center gap-2 transition">
+            🚨 ขอยอดสแปร์ประจำวัน
+            <span v-if="todaySpareShortage > 0" class="bg-red-500 text-white text-xs px-1.5 py-0.2 rounded-full font-bold">
+              {{ todaySpareShortage }}
+            </span>
+          </button>
+          <button @click="currentTab = 'personal'" :class="tabClass('personal')" class="px-3 py-2 rounded-lg flex items-center gap-2 transition">
+            👤 สรุปรายบุคคล (รปภ. ดูยอด)
+          </button>
+          <button v-if="isAdmin" @click="currentTab = 'billing'" :class="tabClass('billing')" class="px-3 py-2 rounded-lg flex items-center gap-2 transition">
+            🖨️ วางบิล (Billing Summary)
+          </button>
+        </nav>
+
+        <!-- Payroll Cycle Selector -->
+        <div class="flex items-center space-x-2 bg-slate-50 border border-slate-300 px-3 py-1.5 rounded-lg text-xs">
+          <span class="text-slate-500 font-medium">รอบเงินเดือน:</span>
+          <select v-model="selectedCycleIndex" class="bg-transparent font-semibold text-slate-800 focus:outline-none cursor-pointer">
+            <option v-for="(cycle, idx) in payrollCycles" :key="idx" :value="idx">
+              {{ cycle.name }} (23 {{ cycle.startMonth }} - 22 {{ cycle.endMonth }})
+            </option>
+          </select>
+          <span class="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded font-medium ml-1">
+            💵 ออก: 1 {{ currentCycle.payDateMonth }}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+
+      <!-- ========================================== -->
+      <!-- TAB 1: ตารางเวรรวม 39 คน (Master Schedule) -->
+      <!-- ========================================== -->
+      <section v-if="currentTab === 'schedule'" class="space-y-4">
+        <!-- Control & Action Row -->
+        <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+          <div>
+            <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+              ตารางเวรรวมรอบ {{ currentCycle.name }}
+              <span class="text-xs font-normal text-slate-500">(23 ถึง 22 ของเดือนถัดไป)</span>
+            </h2>
+            <div class="flex flex-wrap items-center gap-3 mt-1 text-xs text-slate-600">
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-100 border border-amber-300 inline-block"></span> <b>D</b>: กะเช้า (07:00-19:00)</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-indigo-100 border border-indigo-300 inline-block"></span> <b>N</b>: กะดึก (19:00-07:00)</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-slate-200 border border-slate-300 inline-block"></span> <b>H</b>: วันหยุดประจำสัปดาห์</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-red-100 border border-red-300 inline-block"></span> <b>L</b>: ลา/ขาดงาน</span>
+              <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-purple-100 border border-purple-300 inline-block"></span> <b>PH</b>: วันหยุดนักขัตฤกษ์</span>
+            </div>
+          </div>
+
+          <div v-if="isAdmin" class="flex items-center gap-2">
+            <button @click="openLeaveModal" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold px-3.5 py-2 rounded-lg text-xs shadow-sm flex items-center gap-1.5 transition">
+              📝 บันทึกคนลา / จัดคนแทน
+            </button>
+            <button @click="autoGenerateNextCycle" class="bg-slate-900 hover:bg-slate-800 text-white font-medium px-3.5 py-2 rounded-lg text-xs shadow-sm flex items-center gap-1.5 transition">
+              ⚙️ รันรอบถัดไปอัตโนมัติ
+            </button>
+          </div>
+        </div>
+
+        <!-- Interactive Schedule Table -->
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div class="overflow-x-auto table-container">
+            <table class="w-full text-xs text-left border-collapse">
+              <thead class="sticky top-0 bg-slate-900 text-white z-20">
+                <tr>
+                  <th class="p-2.5 font-semibold text-center border-b border-slate-700 w-10">No.</th>
+                  <th class="p-2.5 font-semibold border-b border-slate-700 w-44">ตำแหน่ง (Position)</th>
+                  <th class="p-2.5 font-semibold border-b border-slate-700 w-24">รหัส Code</th>
+                  <th class="p-2.5 font-semibold border-b border-slate-700 w-44">ชื่อ - นามสกุล</th>
+                  <!-- Dynamic Day Columns (23rd to 22nd) -->
+                  <th v-for="(day, dIdx) in currentCycleDays" :key="dIdx" 
+                      class="p-1.5 font-semibold text-center border-b border-slate-700 min-w-[34px]"
+                      :class="{'bg-slate-800 text-amber-300': isWeekend(day.date)}">
+                    <div>{{ day.dayNumber }}</div>
+                    <div class="text-[10px] font-normal" :class="isWeekend(day.date) ? 'text-amber-400' : 'text-slate-400'">{{ day.dayName }}</div>
+                  </th>
+                  <th class="p-2 font-semibold text-center bg-slate-800 border-b border-slate-700">D</th>
+                  <th class="p-2 font-semibold text-center bg-slate-800 border-b border-slate-700">N</th>
+                  <th class="p-2 font-semibold text-center bg-slate-800 border-b border-slate-700">รวมวัน</th>
+                  <th class="p-2 font-semibold text-center bg-slate-800 border-b border-slate-700">หยุด</th>
+                  <th class="p-2 font-semibold text-center bg-slate-800 border-b border-slate-700">Audit GDDL</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="(guard, gIdx) in scheduleData" :key="guard.id" 
+                    class="hover:bg-amber-50/40 transition"
+                    :class="{'bg-slate-50/70': guard.isSpare}">
+                  <td class="p-2 text-center text-slate-500 font-medium">{{ guard.no }}</td>
+                  <td class="p-2 font-medium text-slate-700 truncate max-w-[180px]">
+                    {{ guard.position }}
+                    <span v-if="guard.isSpare" class="ml-1 text-[10px] bg-red-100 text-red-700 px-1 py-0.2 rounded font-bold">รอสแปร์</span>
+                  </td>
+                  <td class="p-2 font-mono text-slate-500 text-[11px]">{{ guard.code || '-' }}</td>
+                  <td class="p-2 font-semibold text-slate-900 truncate max-w-[180px]">
+                    {{ guard.name }}
+                    <span v-if="guard.replacementName" class="block text-[10px] text-amber-700 font-normal">
+                      ↳ แทนโดย: {{ guard.replacementName }} ({{ guard.replacementType }})
+                    </span>
+                  </td>
+                  <!-- Day Shifts -->
+                  <td v-for="(shift, sIdx) in guard.shifts" :key="sIdx" 
+                      @click="isAdmin ? editShift(guard, sIdx) : null"
+                      class="p-1 text-center font-bold border-l border-slate-100 transition"
+                      :class="[getShiftStyle(shift), isAdmin ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : '']">
+                    {{ shift }}
+                  </td>
+                  <!-- Summary stats -->
+                  <td class="p-2 text-center font-bold text-amber-700 bg-amber-50/50">{{ countShifts(guard, 'D') }}</td>
+                  <td class="p-2 text-center font-bold text-indigo-700 bg-indigo-50/50">{{ countShifts(guard, 'N') }}</td>
+                  <td class="p-2 text-center font-bold text-slate-800 bg-slate-50">{{ countShifts(guard, 'D') + countShifts(guard, 'N') }}</td>
+                  <td class="p-2 text-center font-bold text-slate-500 bg-slate-50">{{ countShifts(guard, 'H') }}</td>
+                  <td class="p-2 text-center">
+                    <span class="px-2 py-0.5 rounded text-[10px] font-bold" 
+                          :class="checkGDDL(guard) ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'">
+                      {{ checkGDDL(guard) ? '✓ ผ่าน GDDL' : '⚠️ เกินเกณฑ์' }}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+              <!-- Contract Summary Footer -->
+              <tfoot class="sticky bottom-0 bg-slate-900 text-white font-bold text-xs border-t-2 border-amber-500 z-20">
+                <!-- Actual Day -->
+                <tr>
+                  <td colspan="4" class="p-2 text-right text-amber-400">☀️ รวมกะเช้าจริง (Actual Day)</td>
+                  <td v-for="(day, dIdx) in currentCycleDays" :key="'ad-'+dIdx" class="p-1 text-center text-amber-300">
+                    {{ getDailyActual(dIdx, 'D') }}
+                  </td>
+                  <td colspan="5" class="p-2 text-center text-slate-400">-</td>
+                </tr>
+                <!-- Contract Day -->
+                <tr class="bg-slate-950/80 text-slate-300 text-[11px]">
+                  <td colspan="4" class="p-1.5 text-right">สัญญาตามจุด (Contract Day)</td>
+                  <td v-for="(day, dIdx) in currentCycleDays" :key="'cd-'+dIdx" class="p-1 text-center text-slate-300 font-normal">
+                    {{ getDailyContract(day.date, 'D') }}
+                  </td>
+                  <td colspan="5" class="p-1 text-center text-slate-500">-</td>
+                </tr>
+                <!-- Spare Day Gap -->
+                <tr class="bg-red-950/80 text-red-300">
+                  <td colspan="4" class="p-1.5 text-right">⚠️ สแปร์กะเช้าที่ต้องขอ (Spare Day Gap)</td>
+                  <td v-for="(day, dIdx) in currentCycleDays" :key="'sd-'+dIdx" class="p-1 text-center font-bold"
+                      :class="getDailySpareGap(dIdx, day.date, 'D') > 0 ? 'bg-red-600 text-white animate-pulse' : 'text-slate-400 font-normal'">
+                    {{ getDailySpareGap(dIdx, day.date, 'D') }}
+                  </td>
+                  <td colspan="5" class="p-1 text-center text-slate-400">-</td>
+                </tr>
+                <!-- Actual Night -->
+                <tr class="border-t border-slate-800">
+                  <td colspan="4" class="p-2 text-right text-indigo-300">🌙 รวมกะดึกจริง (Actual Night)</td>
+                  <td v-for="(day, dIdx) in currentCycleDays" :key="'an-'+dIdx" class="p-1 text-center text-indigo-200">
+                    {{ getDailyActual(dIdx, 'N') }}
+                  </td>
+                  <td colspan="5" class="p-2 text-center text-slate-400">-</td>
+                </tr>
+                <!-- Spare Night Gap -->
+                <tr class="bg-red-950/80 text-red-300">
+                  <td colspan="4" class="p-1.5 text-right">⚠️ สแปร์กะดึกที่ต้องขอ (Spare Night Gap)</td>
+                  <td v-for="(day, dIdx) in currentCycleDays" :key="'sn-'+dIdx" class="p-1 text-center font-bold"
+                      :class="getDailySpareGap(dIdx, day.date, 'N') > 0 ? 'bg-red-600 text-white animate-pulse' : 'text-slate-400 font-normal'">
+                    {{ getDailySpareGap(dIdx, day.date, 'N') }}
+                  </td>
+                  <td colspan="5" class="p-1 text-center text-slate-400">-</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB 2: ขอยอดสแปร์ประจำวัน (Daily Spare Gap) -->
+      <!-- ========================================== -->
+      <section v-if="currentTab === 'spare'" class="space-y-6">
+        <div class="bg-gradient-to-r from-slate-900 to-slate-800 text-white p-6 rounded-2xl shadow-md border-b-4 border-amber-500">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <span class="text-xs bg-amber-500 text-slate-950 font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                Shift Handover & Spare Dispatch
+              </span>
+              <h2 class="text-xl font-bold mt-2">ศูนย์ประสานงานขอสแปร์ & ส่งมอบกะ (N ➔ D)</h2>
+              <p class="text-xs text-slate-300 mt-1">กะดึก (N) ตรวจสอบคนลากะเช้า แล้วประสานงาน บ.ต้นสังกัดขอสแปร์ล่วงหน้า</p>
+            </div>
+            <!-- Quick Date Picker -->
+            <div class="flex items-center gap-2 bg-slate-800/80 border border-slate-700 px-4 py-2 rounded-xl">
+              <span class="text-xs text-slate-400">เลือกวันที่ตรวจสอบ:</span>
+              <input type="date" v-model="selectedAuditDate" class="bg-slate-900 text-amber-300 border border-slate-700 rounded px-2.5 py-1 text-xs font-semibold focus:outline-none">
+            </div>
+          </div>
+        </div>
+
+        <!-- Live Shift Requirement Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Day Shift Card -->
+          <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center font-bold text-xl">☀️</div>
+                <div>
+                  <h3 class="font-bold text-slate-800 text-lg">กะเช้า (Day Shift: 07:00 - 19:00)</h3>
+                  <p class="text-xs text-slate-500">เป้าหมายสัญญา: {{ getDailyContract(selectedAuditDateObj, 'D') }} คน</p>
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="text-xs font-medium text-slate-500">มาทำงานจริง</span>
+                <p class="text-2xl font-bold text-slate-900">{{ getDailyActualForDate(selectedAuditDate, 'D') }}</p>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between p-4 rounded-xl"
+                 :class="getDailySpareGapForDate(selectedAuditDate, 'D') > 0 ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'">
+              <div>
+                <span class="text-xs font-bold uppercase tracking-wider" 
+                      :class="getDailySpareGapForDate(selectedAuditDate, 'D') > 0 ? 'text-red-700' : 'text-emerald-700'">
+                  สถานะกำลังพลกะเช้า
+                </span>
+                <p class="text-sm font-semibold" :class="getDailySpareGapForDate(selectedAuditDate, 'D') > 0 ? 'text-red-900' : 'text-emerald-900'">
+                  {{ getDailySpareGapForDate(selectedAuditDate, 'D') > 0 ? '🚨 ต้องขอ รปภ.สแปร์ เพิ่มด่วน!' : '✓ กำลังพลครบตามสัญญา' }}
+                </p>
+              </div>
+              <div class="text-right">
+                <span class="text-xs text-slate-500 block">ขาดสแปร์</span>
+                <span class="text-3xl font-extrabold" :class="getDailySpareGapForDate(selectedAuditDate, 'D') > 0 ? 'text-red-600' : 'text-emerald-600'">
+                  {{ getDailySpareGapForDate(selectedAuditDate, 'D') }}
+                </span>
+                <span class="text-xs text-slate-500 ml-1">นาย</span>
+              </div>
+            </div>
+
+            <!-- Action button -->
+            <button v-if="isAdmin" @click="openSpareAssignModal('D')" class="mt-4 w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition shadow">
+              ➕ กรอกชื่อ รปภ. ประจำมาแทน หรือ สแปร์ (กะเช้า)
+            </button>
+          </div>
+
+          <!-- Night Shift Card -->
+          <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div class="flex items-center gap-3">
+                <div class="w-12 h-12 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center font-bold text-xl">🌙</div>
+                <div>
+                  <h3 class="font-bold text-slate-800 text-lg">กะดึก (Night Shift: 19:00 - 07:00)</h3>
+                  <p class="text-xs text-slate-500">เป้าหมายสัญญา: 10 คน (ทุกวัน)</p>
+                </div>
+              </div>
+              <div class="text-right">
+                <span class="text-xs font-medium text-slate-500">มาทำงานจริง</span>
+                <p class="text-2xl font-bold text-slate-900">{{ getDailyActualForDate(selectedAuditDate, 'N') }}</p>
+              </div>
+            </div>
+
+            <div class="mt-4 flex items-center justify-between p-4 rounded-xl"
+                 :class="getDailySpareGapForDate(selectedAuditDate, 'N') > 0 ? 'bg-red-50 border border-red-200' : 'bg-emerald-50 border border-emerald-200'">
+              <div>
+                <span class="text-xs font-bold uppercase tracking-wider" 
+                      :class="getDailySpareGapForDate(selectedAuditDate, 'N') > 0 ? 'text-red-700' : 'text-emerald-700'">
+                  สถานะกำลังพลกะดึก
+                </span>
+                <p class="text-sm font-semibold" :class="getDailySpareGapForDate(selectedAuditDate, 'N') > 0 ? 'text-red-900' : 'text-emerald-900'">
+                  {{ getDailySpareGapForDate(selectedAuditDate, 'N') > 0 ? '🚨 ต้องขอ รปภ.สแปร์ เพิ่มด่วน!' : '✓ กำลังพลครบตามสัญญา' }}
+                </p>
+              </div>
+              <div class="text-right">
+                <span class="text-xs text-slate-500 block">ขาดสแปร์</span>
+                <span class="text-3xl font-extrabold" :class="getDailySpareGapForDate(selectedAuditDate, 'N') > 0 ? 'text-red-600' : 'text-emerald-600'">
+                  {{ getDailySpareGapForDate(selectedAuditDate, 'N') }}
+                </span>
+                <span class="text-xs text-slate-500 ml-1">นาย</span>
+              </div>
+            </div>
+
+            <button v-if="isAdmin" @click="openSpareAssignModal('N')" class="mt-4 w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition shadow">
+              ➕ กรอกชื่อ รปภ. ประจำมาแทน หรือ สแปร์ (กะดึก)
+            </button>
+          </div>
+        </div>
+
+        <!-- Assigned Replacements Log for this Date -->
+        <div class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+          <h3 class="font-bold text-slate-800 text-base mb-3 flex items-center gap-2">
+            📋 บันทึกกำลังพลทดแทนวันที่ {{ selectedAuditDate }}
+          </h3>
+          <div v-if="currentDateReplacements.length === 0" class="text-center py-6 text-slate-400 text-xs">
+            ยังไม่มีการบันทึก รปภ. ประจำมาแทน หรือ สแปร์ ในวันนี้
+          </div>
+          <div v-else class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-slate-100 text-slate-700 font-semibold">
+                <tr>
+                  <th class="p-2.5 rounded-l-lg">กะ</th>
+                  <th class="p-2.5">ประเภท</th>
+                  <th class="p-2.5">ชื่อผู้ปฏิบัติหน้าที่แทน</th>
+                  <th class="p-2.5">ปฏิบัติหน้าที่แทนตำแหน่ง</th>
+                  <th class="p-2.5">การตรวจสอบ Audit GDDL</th>
+                  <th class="p-2.5 rounded-r-lg">ผู้บันทึก</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="(rep, rIdx) in currentDateReplacements" :key="rIdx">
+                  <td class="p-2.5 font-bold" :class="rep.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">{{ rep.shift }}</td>
+                  <td class="p-2.5">
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold"
+                          :class="rep.type === 'สแปร์นอก' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'">
+                      {{ rep.type }}
+                    </span>
+                  </td>
+                  <td class="p-2.5 font-semibold text-slate-900">{{ rep.name }}</td>
+                  <td class="p-2.5 text-slate-600">{{ rep.position }}</td>
+                  <td class="p-2.5">
+                    <span class="px-2 py-0.5 rounded text-[11px] font-bold"
+                          :class="rep.gddlPass ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'">
+                      {{ rep.gddlPass ? '✓ ผ่านเกณฑ์ (ไม่เกิน 5 วัน/สัปดาห์)' : '🚨 เกินเกณฑ์มาตรฐาน GDDL' }}
+                    </span>
+                  </td>
+                  <td class="p-2.5 text-slate-500 text-[11px]">{{ rep.loggedBy }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB 3: สรุปรายบุคคลของ รปภ. (Personal View) -->
+      <!-- ========================================== -->
+      <section v-if="currentTab === 'personal'" class="space-y-6">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div class="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 class="text-lg font-bold text-slate-800">ตรวจสอบจำนวนวันทำงาน & วันหยุดส่วนบุคคล</h2>
+              <p class="text-xs text-slate-500">รปภ. สามารถเลือกชื่อของตนเองเพื่อดูยอดสรุปประจำรอบเงินเดือนก่อนวันเงินเดือนออก</p>
+            </div>
+            <!-- Search / Select Guard -->
+            <div class="flex items-center gap-2">
+              <label class="text-xs text-slate-600 font-medium">เลือกรหัส/ชื่อ รปภ.:</label>
+              <select v-model="selectedGuardId" class="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500">
+                <option v-for="g in scheduleData" :key="g.id" :value="g.id">
+                  {{ g.no }}. {{ g.name }} ({{ g.position }})
+                </option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Personal Summary Stats Cards -->
+        <div v-if="selectedGuard" class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-center">
+            <span class="text-xs text-amber-700 font-semibold block">☀️ กะเช้า (Day)</span>
+            <span class="text-3xl font-extrabold text-amber-900 mt-1 block">{{ countShifts(selectedGuard, 'D') }}</span>
+            <span class="text-[11px] text-amber-700">วัน ({{ countShifts(selectedGuard, 'D') * 12 }} ชม.)</span>
+          </div>
+          <div class="bg-indigo-50 border border-indigo-200 rounded-2xl p-4 text-center">
+            <span class="text-xs text-indigo-700 font-semibold block">🌙 กะดึก (Night)</span>
+            <span class="text-3xl font-extrabold text-indigo-900 mt-1 block">{{ countShifts(selectedGuard, 'N') }}</span>
+            <span class="text-[11px] text-indigo-700">วัน ({{ countShifts(selectedGuard, 'N') * 12 }} ชม.)</span>
+          </div>
+          <div class="bg-slate-100 border border-slate-200 rounded-2xl p-4 text-center">
+            <span class="text-xs text-slate-600 font-semibold block">🏖️ วันหยุดประจำสัปดาห์</span>
+            <span class="text-3xl font-extrabold text-slate-800 mt-1 block">{{ countShifts(selectedGuard, 'H') }}</span>
+            <span class="text-[11px] text-slate-500">วันหยุด (มาตรฐาน 5/2)</span>
+          </div>
+          <div class="bg-purple-50 border border-purple-200 rounded-2xl p-4 text-center">
+            <span class="text-xs text-purple-700 font-semibold block">🎉 วันนักขัตฤกษ์ (PH)</span>
+            <span class="text-3xl font-extrabold text-purple-900 mt-1 block">{{ countShifts(selectedGuard, 'PH') }}</span>
+            <span class="text-[11px] text-purple-700">วันตามประกาศโรงงาน</span>
+          </div>
+        </div>
+
+        <!-- Personal Calendar Timeline -->
+        <div v-if="selectedGuard" class="bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+          <div class="flex items-center justify-between mb-4 border-b pb-3">
+            <div>
+              <h3 class="font-bold text-slate-800 text-base">ปฏิทินเวรของ {{ selectedGuard.name }}</h3>
+              <p class="text-xs text-slate-500">รอบ {{ currentCycle.name }} (23 ถึง 22) | ออกเงินเดือนวันที่ 1 {{ currentCycle.payDateMonth }}</p>
+            </div>
+            <div class="text-right">
+              <span class="text-xs font-semibold px-3 py-1 rounded-full"
+                    :class="checkGDDL(selectedGuard) ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'">
+                {{ checkGDDL(selectedGuard) ? '✓ ผ่านมาตรฐานความปลอดภัย GDDL' : '⚠️ เกินชั่วโมงที่กำหนด' }}
+              </span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-7 gap-2 text-center text-xs">
+            <div v-for="d in ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส']" :key="d" class="font-bold text-slate-400 py-1 border-b">
+              {{ d }}
+            </div>
+            <div v-for="(shift, idx) in selectedGuard.shifts" :key="idx" 
+                 class="p-2.5 rounded-xl border flex flex-col justify-between h-20 transition"
+                 :class="getPersonalDayCardStyle(shift, currentCycleDays[idx].date)">
+              <div class="flex justify-between items-center text-[11px] font-semibold text-slate-500">
+                <span>{{ currentCycleDays[idx].dayNumber }}</span>
+                <span class="text-[9px] uppercase">{{ currentCycleDays[idx].dayName }}</span>
+              </div>
+              <div class="text-base font-extrabold my-auto" :class="getShiftTextColor(shift)">
+                {{ shift }}
+              </div>
+              <div class="text-[10px] text-slate-500 font-medium">
+                {{ getShiftName(shift) }}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB 4: วางบิล (Billing Summary Export) -->
+      <!-- ========================================== -->
+      <section v-if="currentTab === 'billing' && isAdmin" class="space-y-6">
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 class="text-lg font-bold text-slate-800">เอกสารสรุปกำลังพลแนบการวางบิล (Billing Attachment)</h2>
+            <p class="text-xs text-slate-500">รอบตัดยอดวันที่ 23 ถึงวันที่ 22 พร้อมช่องลงนาม 3 ฝ่าย สามารถสั่งพิมพ์ (Ctrl + P) ได้ทันที</p>
+          </div>
+          <button @click="printBilling" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 shadow-sm transition">
+            🖨️ พิมพ์เอกสารสรุปวางบิล (Print / PDF)
+          </button>
+        </div>
+
+        <!-- Printable Document Container -->
+        <div id="printableArea" class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 text-slate-800">
+          <div class="text-center border-b pb-4 mb-6">
+            <h1 class="text-xl font-bold">CONTINENTAL TYRES (THAILAND) CO., LTD.</h1>
+            <h2 class="text-base font-semibold mt-1">เอกสารสรุปการปฏิบัติงาน รปภ. และจำนวนสแปร์แนบใบแจ้งหนี้/วางบิล</h2>
+            <p class="text-xs text-slate-500 mt-1">
+              รอบการทำงานตั้งแต่วันที่ <b>23 {{ currentCycle.startMonth }}</b> ถึงวันที่ <b>22 {{ currentCycle.endMonth }}</b> | กำหนดจ่ายเงินเดือน: <b>1 {{ currentCycle.payDateMonth }}</b>
+            </p>
+          </div>
+
+          <!-- High-level Summary Numbers -->
+          <div class="grid grid-cols-3 gap-4 mb-6 text-center text-xs">
+            <div class="border p-3 rounded-lg bg-slate-50">
+              <span class="text-slate-500 block">กำลังพลสัญญาตามสัญญา (Man-day)</span>
+              <span class="text-xl font-bold text-slate-900">{{ totalContractManDays }}</span>
+            </div>
+            <div class="border p-3 rounded-lg bg-emerald-50">
+              <span class="text-emerald-700 block">กำลังพลประจำมาทำงานจริง (Regular)</span>
+              <span class="text-xl font-bold text-emerald-900">{{ totalActualRegularDays }}</span>
+            </div>
+            <div class="border p-3 rounded-lg bg-purple-50">
+              <span class="text-purple-700 block">สแปร์และคนแทนที่เรียกใช้ (Total Spare)</span>
+              <span class="text-xl font-bold text-purple-900">{{ totalSpareDays }}</span>
+            </div>
+          </div>
+
+          <!-- Detailed Spare Table for Billing -->
+          <table class="w-full text-xs text-left border border-slate-300 mb-8">
+            <thead class="bg-slate-100 font-bold border-b border-slate-300">
+              <tr>
+                <th class="p-2 border-r border-slate-300 text-center w-12">ลำดับ</th>
+                <th class="p-2 border-r border-slate-300">วันที่</th>
+                <th class="p-2 border-r border-slate-300 text-center w-16">กะ</th>
+                <th class="p-2 border-r border-slate-300">ชื่อ - สกุล รปภ. สแปร์</th>
+                <th class="p-2 border-r border-slate-300">ตำแหน่ง/จุดงานที่ขึ้นแทน</th>
+                <th class="p-2 border-r border-slate-300 text-center w-20">ชั่วโมง</th>
+                <th class="p-2">การตรวจสอบ Audit GDDL</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+              <tr v-for="(item, idx) in billingSpareLog" :key="idx">
+                <td class="p-2 border-r border-slate-200 text-center">{{ idx + 1 }}</td>
+                <td class="p-2 border-r border-slate-200 font-mono">{{ item.date }}</td>
+                <td class="p-2 border-r border-slate-200 text-center font-bold">{{ item.shift }}</td>
+                <td class="p-2 border-r border-slate-200 font-semibold">{{ item.name }}</td>
+                <td class="p-2 border-r border-slate-200">{{ item.position }}</td>
+                <td class="p-2 border-r border-slate-200 text-center font-bold">12 ชม.</td>
+                <td class="p-2 text-emerald-700 font-medium">✓ ผ่านเกณฑ์ (ไม่เกิน 60 ชม./สัปดาห์)</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Signature Blocks (3 Parties) -->
+          <div class="grid grid-cols-3 gap-8 text-center text-xs mt-12 pt-8 border-t border-slate-300">
+            <div>
+              <p class="font-bold text-slate-800">ผู้จัดทำ (Supervisor)</p>
+              <div class="h-16 flex items-end justify-center">
+                <span class="text-slate-400">......................................................</span>
+              </div>
+              <p class="mt-2 text-slate-600">(......................................................)</p>
+              <p class="text-[11px] text-slate-400 mt-1">วันที่ ..... / ..... / .........</p>
+            </div>
+            <div>
+              <p class="font-bold text-slate-800">ผู้ตรวจสอบ (Site Manager)</p>
+              <div class="h-16 flex items-end justify-center">
+                <span class="text-slate-400">......................................................</span>
+              </div>
+              <p class="mt-2 text-slate-600">(......................................................)</p>
+              <p class="text-[11px] text-slate-400 mt-1">วันที่ ..... / ..... / .........</p>
+            </div>
+            <div>
+              <p class="font-bold text-slate-800">ตัวแทนบริษัท รปภ. ต้นสังกัด</p>
+              <div class="h-16 flex items-end justify-center">
+                <span class="text-slate-400">......................................................</span>
+              </div>
+              <p class="mt-2 text-slate-600">(......................................................)</p>
+              <p class="text-[11px] text-slate-400 mt-1">วันที่ ..... / ..... / .........</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Modals -->
+    <!-- 1. Supervisor Login Modal -->
+    <div v-if="showLoginModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl border border-slate-200">
+        <h3 class="font-bold text-slate-900 text-base mb-1">เข้าสู่ระบบ Supervisor / Site Manager</h3>
+        <p class="text-xs text-slate-500 mb-4">กรุณาระบุรหัส PIN เพื่อเปิดโหมดแก้ไขตารางเวรและบันทึกสแปร์</p>
+        <input type="password" v-model="loginPin" @keyup.enter="handleLogin" placeholder="ใส่รหัส PIN (ค่าเริ่มต้น: 1234)" 
+               class="w-full bg-slate-50 border border-slate-300 rounded-xl px-3.5 py-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-500 mb-4">
+        <div class="flex gap-2">
+          <button @click="showLoginModal = false" class="w-1/2 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            ยกเลิก
+          </button>
+          <button @click="handleLogin" class="w-1/2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition">
+            เข้าสู่ระบบ
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Record Leave & Assign Replacement Modal -->
+    <div v-if="showLeaveModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+        <h3 class="font-bold text-slate-900 text-base mb-1">บันทึกคนลา & จัดคนแทน</h3>
+        <p class="text-xs text-slate-500 mb-4">เลือกรปภ. ที่ลา และระบุว่าจะให้คนประจำมาแทน (OT) หรือเรียกสแปร์จาก บ.ต้นสังกัด</p>
+
+        <div class="space-y-3 text-xs">
+          <div>
+            <label class="font-semibold text-slate-700 block mb-1">เลือกรปภ. ที่แจ้งลา:</label>
+            <select v-model="leaveForm.guardId" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-medium">
+              <option v-for="g in scheduleData" :key="g.id" :value="g.id">
+                No.{{ g.no }} - {{ g.name }} ({{ g.position }})
+              </option>
+            </select>
+          </div>
+
+          <div>
+            <label class="font-semibold text-slate-700 block mb-1">วันที่ลา:</label>
+            <input type="date" v-model="leaveForm.date" class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-medium">
+          </div>
+
+          <div>
+            <label class="font-semibold text-slate-700 block mb-1">รูปแบบคนมาปฏิบัติหน้าที่แทน:</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" @click="leaveForm.replaceType = 'คนประจำมาแทน'"
+                      :class="leaveForm.replaceType === 'คนประจำมาแทน' ? 'bg-amber-500 text-slate-950 font-bold border-amber-600' : 'bg-slate-50 border-slate-200 text-slate-700'"
+                      class="py-2 px-3 border rounded-lg text-center transition">
+                คนประจำมาแทน (OT)
+              </button>
+              <button type="button" @click="leaveForm.replaceType = 'สแปร์นอก'"
+                      :class="leaveForm.replaceType === 'สแปร์นอก' ? 'bg-amber-500 text-slate-950 font-bold border-amber-600' : 'bg-slate-50 border-slate-200 text-slate-700'"
+                      class="py-2 px-3 border rounded-lg text-center transition">
+                ขอสแปร์ บ.ต้นสังกัด
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label class="font-semibold text-slate-700 block mb-1">ชื่อ รปภ. ที่มาปฏิบัติหน้าที่แทน:</label>
+            <input type="text" v-model="leaveForm.replacementName" placeholder="กรอกชื่อ - สกุล ผู้มาแทน" 
+                   class="w-full bg-slate-50 border border-slate-300 rounded-lg p-2 font-medium">
+          </div>
+        </div>
+
+        <div class="flex gap-2 mt-6">
+          <button @click="showLeaveModal = false" class="w-1/2 py-2.5 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            ยกเลิก
+          </button>
+          <button @click="submitLeave" class="w-1/2 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition">
+            บันทึกข้อมูล
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>
