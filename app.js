@@ -1,6 +1,6 @@
 /**
  * Security Work Schedule
- * Web Portal Logic with Vue 3 & Firebase Integration
+ * Web Portal Logic with Exact Master Draft Integration & GDDL Compliance
  */
 
 const { createApp, ref, computed, onMounted } = Vue;
@@ -15,24 +15,22 @@ createApp({
     // Active Tab
     const currentTab = ref('schedule'); // 'schedule' | 'spare' | 'personal' | 'billing'
 
-    // Payroll Cycles (23rd to 22nd)
+    // Payroll Cycles (23rd of previous month to 22nd of current month)
     const payrollCycles = ref([
-      { name: 'รอบ ธ.ค. 2026', startYear: 2026, startMonthNum: 11, startMonth: 'พ.ย.', endYear: 2026, endMonthNum: 12, endMonth: 'ธ.ค.', payDateMonth: 'ม.ค. 2027' },
-      { name: 'รอบ ม.ค. 2027', startYear: 2026, startMonthNum: 12, startMonth: 'ธ.ค.', endYear: 2027, endMonthNum: 1, endMonth: 'ม.ค.', payDateMonth: 'ก.พ. 2027' },
-      { name: 'รอบ ก.พ. 2027', startYear: 2027, startMonthNum: 1, startMonth: 'ม.ค.', endYear: 2027, endMonthNum: 2, endMonth: 'ก.พ.', payDateMonth: 'มี.ค. 2027' }
+      { id: 'dec', name: 'รอบ ธ.ค. 2026', startYear: 2026, startMonthNum: 11, startMonth: 'พ.ย.', endYear: 2026, endMonthNum: 12, endMonth: 'ธ.ค.', payDateMonth: 'ม.ค. 2027', days: 30, monthOffset: 0 },
+      { id: 'nov', name: 'รอบ พ.ย. 2026', startYear: 2026, startMonthNum: 10, startMonth: 'ต.ค.', endYear: 2026, endMonthNum: 11, endMonth: 'พ.ย.', payDateMonth: 'ธ.ค. 2026', days: 31, monthOffset: 2 },
+      { id: 'jan', name: 'รอบ ม.ค. 2027', startYear: 2026, startMonthNum: 12, startMonth: 'ธ.ค.', endYear: 2027, endMonthNum: 1, endMonth: 'ม.ค.', payDateMonth: 'ก.พ. 2027', days: 31, monthOffset: 1 }
     ]);
     const selectedCycleIndex = ref(0);
     const currentCycle = computed(() => payrollCycles.value[selectedCycleIndex.value]);
 
-    // Calculate days for current cycle (23rd of previous month to 22nd of current month)
+    // Calculate days for current cycle (23rd to 22nd)
     const currentCycleDays = computed(() => {
       const cycle = currentCycle.value;
       const days = [];
       const dayNamesTH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
-      // Start: 23 of startMonth
       let cur = new Date(cycle.startYear, cycle.startMonthNum - 1, 23);
-      // End: 22 of endMonth
       const end = new Date(cycle.endYear, cycle.endMonthNum - 1, 22);
 
       while (cur <= end) {
@@ -47,116 +45,223 @@ createApp({
       return days;
     });
 
-    // 39 Roster Master Data
-    const initialRoster = [
-      { no: 1, position: 'Site manager', code: 'SE2403575', name: 'นายอัครเดช เจริญสุข', isSpare: false, mainShift: 'D', offPattern: 'SAT_SUN' },
-      { no: 2, position: 'Security Fire Man 1', code: 'SE2402366', name: 'น.ส.ปณิตา โอละลึก', isSpare: false, mainShift: 'D', isFireman: true, firemanId: 1 },
-      { no: 3, position: 'Security Fire Man 2', code: 'SE2601481', name: 'น.ส.พรธิตา ศรีกุลวงษ์', isSpare: false, mainShift: 'D', isFireman: true, firemanId: 2 },
-      { no: 4, position: 'Security Fire Man 4', code: 'SE2604787', name: 'นายจิรโชติ ธงชัย', isSpare: false, mainShift: 'D', isFireman: true, firemanId: 4 },
-      { no: 5, position: 'Security Fire Man 3', code: 'SE2303758', name: 'นายสมชาย ทุสุนา', isSpare: false, mainShift: 'D', isFireman: true, firemanId: 3 },
-      { no: 6, position: 'Senior Supervisor', code: 'SE2400110', name: 'นายอุสมาน แลยะลี', isSpare: false, mainShift: 'D', offPattern: 'THU_FRI' },
-      { no: 7, position: 'Supervisor', code: 'SE2303757', name: 'นายอนุสรณ์ ศิริวัฒนกุล', isSpare: false, mainShift: 'ROT', offPattern: 'THU_FRI' },
-      { no: 8, position: 'Supervisor', code: 'SE2500652', name: 'นายปิยวัฒน์ บุญเฮง', isSpare: false, mainShift: 'ROT', offPattern: 'TUE_WED' },
-      { no: 9, position: 'Supervisor', code: 'SE2400890', name: 'นายธีรวัฒน์ ศรีนนท์เคน', isSpare: false, mainShift: 'ROT', offPattern: 'SUN_MON' },
-      { no: 10, position: 'Ass. Supervisor', code: 'SE2400595', name: 'นายจักรพงษ์ ตระกูลดี', isSpare: false, mainShift: 'ROT', offPattern: 'SAT_SUN' },
-      { no: 11, position: 'Ass. Supervisor', code: 'SE2400593', name: 'นายพรชัย ใจตรง', isSpare: false, mainShift: 'ROT', offPattern: 'MON_TUE' },
-      { no: 12, position: 'Ass. Supervisor', code: 'SE2504781', name: 'นายเสกสรร เสนนอก', isSpare: false, mainShift: 'ROT', offPattern: 'WED_THU' },
-      { no: 13, position: 'CCTV', code: 'SE2401588', name: 'นายรัชชานนท์ พรมวงค์', isSpare: false, mainShift: 'ROT', offPattern: 'SAT_SUN' },
-      { no: 14, position: 'CCTV', code: 'SE2501019', name: 'น.ส. สุภาวดี หมายจันทึก', isSpare: false, mainShift: 'ROT', offPattern: 'WED_THU' },
-      { no: 15, position: 'CCTV', code: 'SE2501861', name: 'น.ส.นัทธมน เสนานิคม', isSpare: false, mainShift: 'ROT', offPattern: 'MON_TUE' },
-      { no: 16, position: 'Emergency Driver', code: 'SE2402957', name: 'นายณัฏฐสิทธิ์ มงคลดี', isSpare: false, mainShift: 'ROT', offPattern: 'SAT_SUN' },
-      { no: 17, position: 'Emergency Driver', code: 'SE2303770', name: 'นายอดิสรณ์ ขาวงาม', isSpare: false, mainShift: 'ROT', offPattern: 'THU_FRI' },
-      { no: 18, position: 'Emergency Driver', code: 'SE2500083', name: 'นายเรืองฤทธิ์ คำผง', isSpare: false, mainShift: 'ROT', offPattern: 'TUE_WED' },
-      { no: 19, position: 'Admin Day - Gate 1', code: 'SE2303764', name: 'น.ส.วิเชียร แมดพิมาย', isSpare: false, mainShift: 'D', offPattern: 'SUN_MON' },
-      { no: 20, position: 'Admin Day - Gate 2', code: 'SE2500239', name: 'น.ส. อรนุช สายปัญญา', isSpare: false, mainShift: 'D', offPattern: 'FRI_SAT' },
-      { no: 21, position: 'Guard', code: 'SE2500384', name: 'น.ส. ปทุมพร ขวัญมา', isSpare: false, mainShift: 'D', offPattern: 'WED_THU' },
-      { no: 22, position: 'Guard', code: 'SE172615', name: 'นายประเสริฐ มูลฤทธิ์', isSpare: false, mainShift: 'ROT', offPattern: 'TUE_WED' },
-      { no: 23, position: 'Guard', code: 'SE2503274', name: 'นายวัลลภ พิรักษา', isSpare: false, mainShift: 'ROT', offPattern: 'WED_THU' },
-      { no: 24, position: 'Guard', code: 'SE2504780', name: 'นายจุลชาติ แถลงกัณฑ์', isSpare: false, mainShift: 'ROT', offPattern: 'THU_FRI' },
-      { no: 25, position: 'Guard', code: 'SE2401151', name: 'นายสินณรงค์กร ทองเกษร', isSpare: false, mainShift: 'ROT', offPattern: 'SAT_SUN' },
-      { no: 26, position: 'Guard', code: 'SE2303133', name: 'นายดำรงพร วงศ์สมบัติ', isSpare: false, mainShift: 'ROT', offPattern: 'SUN_MON' },
-      { no: 27, position: 'Guard', code: 'SE2602602', name: 'นายสุทธิพงษ์ ปัญญาพรม', isSpare: false, mainShift: 'ROT', offPattern: 'MON_TUE' },
-      { no: 28, position: 'Guard', code: 'SE2501573', name: 'นายสรยุทธ หอมสมบัติ', isSpare: false, mainShift: 'ROT', offPattern: 'TUE_WED' },
-      { no: 29, position: 'Guard', code: 'SE2605554', name: 'นายวันชัย ช่วยปัด', isSpare: false, mainShift: 'ROT', offPattern: 'WED_THU' },
-      { no: 30, position: 'Guard', code: 'SE2503503', name: 'นายถาวร ไชยโคตร', isSpare: false, mainShift: 'ROT', offPattern: 'THU_FRI' },
-      { no: 31, position: 'Guard (สแปร์ประจำ)', code: '', name: '[ตำแหน่งว่าง - รอสแปร์ 1]', isSpare: true, mainShift: 'ROT', offPattern: 'SUN_MON' },
-      { no: 32, position: 'Guard', code: 'SE2402657', name: 'นายอดิเทพ อุระเพ็ญ', isSpare: false, mainShift: 'ROT', offPattern: 'MON_TUE' },
-      { no: 33, position: 'Guard', code: 'SE2403015', name: 'นายพรชัย จิตรสม', isSpare: false, mainShift: 'ROT', offPattern: 'FRI_SAT' },
-      { no: 34, position: 'Guard', code: 'SE2500612', name: 'นายสุรศักดิ์  อักษรพิมพ์', isSpare: false, mainShift: 'ROT', offPattern: 'THU_FRI' },
-      { no: 35, position: 'Guard', code: 'SE2603922', name: 'นายภานุวัฒน์ ใบบัวดง', isSpare: false, mainShift: 'ROT', offPattern: 'FRI_SAT' },
-      { no: 36, position: 'Guard (สแปร์ประจำ)', code: '', name: '[ตำแหน่งว่าง - รอสแปร์ 2]', isSpare: true, mainShift: 'ROT', offPattern: 'TUE_WED' },
-      { no: 37, position: 'Guard', code: 'SE2603850', name: 'นายอานนท์ สาริกุล', isSpare: false, mainShift: 'ROT', offPattern: 'SUN_MON' },
-      { no: 38, position: 'Reception Staff', code: 'SE2303772', name: 'น.ส.ปรียมน วสะหลาย', isSpare: false, mainShift: 'D', offPattern: 'SAT_SUN' },
-      { no: 39, position: 'Reception Staff (สแปร์)', code: '', name: '[ตำแหน่งว่าง - รอสแปร์ 3]', isSpare: true, mainShift: 'D', offPattern: 'SAT_SUN' }
+    // 1. DECEMBER 2026 EXACT DRAFT DATA (30 days from 23 Nov to 22 Dec)
+    const decMasterData = [
+      { no: 1, position: 'Site manager', code: 'SE2403575', name: 'นายอัครเดช เจริญสุข', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D" },
+      { no: 2, position: 'Security Fire Man 1', code: 'SE2402366', name: 'น.ส.ปณิตา โอละลึก', isSpare: false, isFireman: true, firemanId: 1,
+        rawShifts: "H,D,D,D,D,H,D,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D" },
+      { no: 3, position: 'Security Fire Man 2', code: 'SE2601481', name: 'น.ส.พรธิตา ศรีกุลวงษ์', isSpare: false, isFireman: true, firemanId: 2,
+        rawShifts: "D,D,D,D,H,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D" },
+      { no: 4, position: 'Security Fire Man 4', code: 'SE2604787', name: 'นายจิรโชติ ธงชัย', isSpare: false, isFireman: true, firemanId: 4,
+        rawShifts: "D,D,D,D,D,H,H,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D" },
+      { no: 5, position: 'Security Fire Man 3', code: 'SE2303758', name: 'นายสมชาย ทุสุนา', isSpare: false, isFireman: true, firemanId: 3,
+        rawShifts: "D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H" },
+      { no: 6, position: 'Senior Supervisor', code: 'SE2400110', name: 'นายอุสมาน แลยะลี', isSpare: false,
+        rawShifts: "D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D" },
+      { no: 7, position: 'Supervisor', code: 'SE2303757', name: 'นายอนุสรณ์ ศิริวัฒนกุล', isSpare: false,
+        rawShifts: "D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D" },
+      { no: 8, position: 'Supervisor', code: 'SE2500652', name: 'นายปิยวัฒน์ บุญเฮง', isSpare: false,
+        rawShifts: "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H" },
+      { no: 9, position: 'Supervisor', code: 'SE2400890', name: 'นายธีรวัฒน์ ศรีนนท์เคน', isSpare: false,
+        rawShifts: "H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N" },
+      { no: 10, position: 'Ass. Supervisor', code: 'SE2400595', name: 'นายจักรพงษ์ ตระกูลดี', isSpare: false,
+        rawShifts: "N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N" },
+      { no: 11, position: 'Ass. Supervisor', code: 'SE2400593', name: 'นายพรชัย ใจตรง', isSpare: false,
+        rawShifts: "H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H" },
+      { no: 12, position: 'Ass. Supervisor', code: 'SE2504781', name: 'นายเสกสรร เสนนอก', isSpare: false,
+        rawShifts: "D,D,H,H,D,N,N,N,N,H,H,D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D,D" },
+      { no: 13, position: 'CCTV', code: 'SE2401588', name: 'นายรัชชานนท์ พรมวงค์', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D" },
+      { no: 14, position: 'CCTV', code: 'SE2501019', name: 'น.ส. สุภาวดี หมายจันทึก', isSpare: false,
+        rawShifts: "N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N" },
+      { no: 15, position: 'CCTV', code: 'SE2501861', name: 'น.ส.นัทธมน เสนานิคม', isSpare: false,
+        rawShifts: "H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H" },
+      { no: 16, position: 'Emergency Driver', code: 'SE2402957', name: 'นายณัฏฐสิทธิ์ มงคลดี', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D" },
+      { no: 17, position: 'Emergency Driver', code: 'SE2303770', name: 'นายอดิสรณ์ ขาวงาม', isSpare: false,
+        rawShifts: "N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N" },
+      { no: 18, position: 'Emergency Driver', code: 'SE2500083', name: 'นายเรืองฤทธิ์ คำผง', isSpare: false,
+        rawShifts: "D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H" },
+      { no: 19, position: 'Admin Day - Gate 1', code: 'SE2303764', name: 'น.ส.วิเชียร แมดพิมาย', isSpare: false,
+        rawShifts: "H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D" },
+      { no: 20, position: 'Admin Day - Gate 2', code: 'SE2500239', name: 'น.ส. อรนุช สายปัญญา', isSpare: false,
+        rawShifts: "D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D" },
+      { no: 21, position: 'Guard', code: 'SE2500384', name: 'น.ส. ปทุมพร ขวัญมา', isSpare: false,
+        rawShifts: "D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D" },
+      { no: 22, position: 'Guard', code: 'SE172615', name: 'นายประเสริฐ มูลฤทธิ์', isSpare: false,
+        rawShifts: "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H" },
+      { no: 23, position: 'Guard', code: 'SE2503274', name: 'นายวัลลภ พิรักษา', isSpare: false,
+        rawShifts: "N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N" },
+      { no: 24, position: 'Guard', code: 'SE2504780', name: 'นายจุลชาติ แถลงกัณฑ์', isSpare: false,
+        rawShifts: "N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N" },
+      { no: 25, position: 'Guard', code: 'SE2401151', name: 'นายสินณรงค์กร ทองเกษร', isSpare: false,
+        rawShifts: "N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N" },
+      { no: 26, position: 'Guard', code: 'SE2303133', name: 'นายดำรงพร วงศ์สมบัติ', isSpare: false,
+        rawShifts: "H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N" },
+      { no: 27, position: 'Guard', code: 'SE2602602', name: 'นายสุทธิพงษ์ ปัญญาพรม', isSpare: false,
+        rawShifts: "H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H" },
+      { no: 28, position: 'Guard', code: 'SE2501573', name: 'นายสรยุทธ หอมสมบัติ', isSpare: false,
+        rawShifts: "D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H" },
+      { no: 29, position: 'Guard', code: 'SE2605554', name: 'นายวันชัย ช่วยปัด', isSpare: false,
+        rawShifts: "D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D" },
+      { no: 30, position: 'Guard', code: 'SE2503503', name: 'นายถาวร ไชยโคตร', isSpare: false,
+        rawShifts: "D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D" },
+      { no: 31, position: 'Guard (สแปร์ประจำ)', code: '', name: '[ตำแหน่งว่าง - สแปร์ประจำ 1]', isSpare: true,
+        rawShifts: "H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D" },
+      { no: 32, position: 'Guard', code: 'SE2402657', name: 'นายอดิเทพ อุระเพ็ญ', isSpare: false,
+        rawShifts: "H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H" },
+      { no: 33, position: 'Guard', code: 'SE2403015', name: 'นายพรชัย จิตรสม', isSpare: false,
+        rawShifts: "D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D" },
+      { no: 34, position: 'Guard', code: 'SE2500612', name: 'นายสุรศักดิ์  อักษรพิมพ์', isSpare: false,
+        rawShifts: "N,N,N,H,H,D,D,D,N,N,H,H,D,D,N,N,N,H,H,D,D,D,N,N,H,H,D,D,N,N" },
+      { no: 35, position: 'Guard', code: 'SE2603922', name: 'นายภานุวัฒน์ ใบบัวดง', isSpare: false,
+        rawShifts: "D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D" },
+      { no: 36, position: 'Guard (สแปร์ประจำ)', code: '', name: '[ตำแหน่งว่าง - สแปร์ประจำ 2]', isSpare: true,
+        rawShifts: "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H" },
+      { no: 37, position: 'Guard', code: 'SE2603850', name: 'นายอานนท์ สาริกุล', isSpare: false,
+        rawShifts: "H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N" },
+      { no: 38, position: 'Reception Staff', code: 'SE2303772', name: 'น.ส.ปรียมน วสะหลาย', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D" },
+      { no: 39, position: 'Reception Staff (สแปร์)', code: '', name: '[ตำแหน่งว่าง - สแปร์ประจำ 3]', isSpare: true,
+        rawShifts: "D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D" },
+      { no: 40, position: 'Spare Relief Pool (โควตาสแปร์หมุนเวียน)', code: 'SPARE-RELIEF', name: 'รปภ. สแปร์หมุนเวียนตามสัญญา', isSpare: true, isReliefPool: true,
+        rawShifts: "H,H,D,N,H,H,D,H,H,D,D,H,H,N,H,H,D,N,H,H,D,H,H,D,D,H,H,N,H,H" }
+    ];
+
+    // 2. NOVEMBER 2026 EXACT DRAFT DATA (31 days from 23 Oct to 22 Nov)
+    const novMasterData = [
+      { no: 1, position: 'Site manager', code: 'SE2403575', name: 'นายอัครเดช เจริญสุข', isSpare: false,
+        rawShifts: "D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H" },
+      { no: 2, position: 'Security Fire Man 1', code: 'SE2402366', name: 'น.ส.ปณิตา โอละลึก', isSpare: false, isFireman: true, firemanId: 1,
+        rawShifts: "H,H,D,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H" },
+      { no: 3, position: 'Security Fire Man 2', code: 'SE2601481', name: 'น.ส.พรธิตา ศรีกุลวงษ์', isSpare: false, isFireman: true, firemanId: 2,
+        rawShifts: "D,H,H,D,D,D,D,H,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H" },
+      { no: 4, position: 'Security Fire Man 4', code: 'SE2604787', name: 'นายจิรโชติ ธงชัย', isSpare: false, isFireman: true, firemanId: 4,
+        rawShifts: "D,D,H,H,D,D,D,D,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D" },
+      { no: 5, position: 'Security Fire Man 3', code: 'SE2303758', name: 'นายสมชาย ทุสุนา', isSpare: false, isFireman: true, firemanId: 3,
+        rawShifts: "D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D" },
+      { no: 6, position: 'Senior Supervisor', code: 'SE2400110', name: 'นายอุสมาน แลยะลี', isSpare: false,
+        rawShifts: "H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D" },
+      { no: 7, position: 'Supervisor', code: 'SE2303757', name: 'นายอนุสรณ์ ศิริวัฒนกุล', isSpare: false,
+        rawShifts: "H,D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D" },
+      { no: 8, position: 'Supervisor', code: 'SE2500652', name: 'นายปิยวัฒน์ บุญเฮง', isSpare: false,
+        rawShifts: "N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N" },
+      { no: 9, position: 'Supervisor', code: 'SE2400890', name: 'นายธีรวัฒน์ ศรีนนท์เคน', isSpare: false,
+        rawShifts: "D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H" },
+      { no: 10, position: 'Ass. Supervisor', code: 'SE2400595', name: 'นายจักรพงษ์ ตระกูลดี', isSpare: false,
+        rawShifts: "D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H" },
+      { no: 11, position: 'Ass. Supervisor', code: 'SE2400593', name: 'นายพรชัย ใจตรง', isSpare: false,
+        rawShifts: "N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N" },
+      { no: 12, position: 'Ass. Supervisor', code: 'SE2504781', name: 'นายเสกสรร เสนนอก', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D,D" },
+      { no: 13, position: 'CCTV', code: 'SE2401588', name: 'นายรัชชานนท์ พรมวงค์', isSpare: false,
+        rawShifts: "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H" },
+      { no: 14, position: 'CCTV', code: 'SE2501019', name: 'น.ส. สุภาวดี หมายจันทึก', isSpare: false,
+        rawShifts: "N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N" },
+      { no: 15, position: 'CCTV', code: 'SE2501861', name: 'น.ส.นัทธมน เสนานิคม', isSpare: false,
+        rawShifts: "D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D" },
+      { no: 16, position: 'Emergency Driver', code: 'SE2402957', name: 'นายณัฏฐสิทธิ์ มงคลดี', isSpare: false,
+        rawShifts: "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H" },
+      { no: 17, position: 'Emergency Driver', code: 'SE2303770', name: 'นายอดิสรณ์ ขาวงาม', isSpare: false,
+        rawShifts: "H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N" },
+      { no: 18, position: 'Emergency Driver', code: 'SE2500083', name: 'นายเรืองฤทธิ์ คำผง', isSpare: false,
+        rawShifts: "D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D" },
+      { no: 19, position: 'Admin Day - Gate 1', code: 'SE2303764', name: 'น.ส.วิเชียร แมดพิมาย', isSpare: false,
+        rawShifts: "D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H" },
+      { no: 20, position: 'Admin Day - Gate 2', code: 'SE2500239', name: 'น.ส. อรนุช สายปัญญา', isSpare: false,
+        rawShifts: "H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D" },
+      { no: 21, position: 'Guard', code: 'SE2500384', name: 'น.ส. ปทุมพร ขวัญมา', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D" },
+      { no: 22, position: 'Guard', code: 'SE172615', name: 'นายประเสริฐ มูลฤทธิ์', isSpare: false,
+        rawShifts: "N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N" },
+      { no: 23, position: 'Guard', code: 'SE2503274', name: 'นายวัลลภ พิรักษา', isSpare: false,
+        rawShifts: "N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N" },
+      { no: 24, position: 'Guard', code: 'SE2504780', name: 'นายจุลชาติ แถลงกัณฑ์', isSpare: false,
+        rawShifts: "H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N" },
+      { no: 25, position: 'Guard', code: 'SE2401151', name: 'นายสินณรงค์กร ทองเกษร', isSpare: false,
+        rawShifts: "D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H" },
+      { no: 26, position: 'Guard', code: 'SE2303133', name: 'นายดำรงพร วงศ์สมบัติ', isSpare: false,
+        rawShifts: "D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H" },
+      { no: 27, position: 'Guard', code: 'SE2602602', name: 'นายสุทธิพงษ์ ปัญญาพรม', isSpare: false,
+        rawShifts: "D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D" },
+      { no: 28, position: 'Guard', code: 'SE2501573', name: 'นายสรยุทธ หอมสมบัติ', isSpare: false,
+        rawShifts: "D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D" },
+      { no: 29, position: 'Guard', code: 'SE2605554', name: 'นายวันชัย ช่วยปัด', isSpare: false,
+        rawShifts: "D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D" },
+      { no: 30, position: 'Guard', code: 'SE2503503', name: 'นายถาวร ไชยโคตร', isSpare: false,
+        rawShifts: "H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D" },
+      { no: 31, position: 'Guard (SE2504018)', code: 'SE2504018', name: 'นายพิชิต บุญชู', isSpare: false,
+        rawShifts: "N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H" },
+      { no: 32, position: 'Guard', code: 'SE2402657', name: 'นายอดิเทพ อุระเพ็ญ', isSpare: false,
+        rawShifts: "N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N" },
+      { no: 33, position: 'Guard', code: 'SE2403015', name: 'นายพรชัย จิตรสม', isSpare: false,
+        rawShifts: "H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D" },
+      { no: 34, position: 'Guard', code: 'SE2500612', name: 'นายสุรศักดิ์  อักษรพิมพ์', isSpare: false,
+        rawShifts: "H,D,D,N,N,N,H,H,D,D,D,N,N,H,H,D,D,N,N,N,H,H,D,D,D,N,N,H,H,D,D" },
+      { no: 35, position: 'Guard', code: 'SE2603922', name: 'นายภานุวัฒน์ ใบบัวดง', isSpare: false,
+        rawShifts: "H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D" },
+      { no: 36, position: 'Guard (SE2604192)', code: 'SE2604192', name: 'นายณรงค์ จำปา', isSpare: false,
+        rawShifts: "N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N" },
+      { no: 37, position: 'Guard', code: 'SE2603850', name: 'นายอานนท์ สาริกุล', isSpare: false,
+        rawShifts: "D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H" },
+      { no: 38, position: 'Reception Staff', code: 'SE2303772', name: 'น.ส.ปรียมน วสะหลาย', isSpare: false,
+        rawShifts: "D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H" },
+      { no: 39, position: 'Reception Staff (สแปร์)', code: '', name: '[ตำแหน่งว่าง - สแปร์ประจำ 3]', isSpare: true,
+        rawShifts: "D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H" },
+      { no: 40, position: 'Spare Relief Pool (โควตาสแปร์หมุนเวียน)', code: 'SPARE-RELIEF', name: 'รปภ. สแปร์หมุนเวียนตามสัญญา', isSpare: true, isReliefPool: true,
+        rawShifts: "H,H,N,H,H,D,N,H,H,D,H,H,D,D,H,H,N,H,H,D,N,H,H,D,H,H,D,D,H,H,N" }
     ];
 
     // Fireman Rotation Helper
-    function getFiremanOffDays(firemanId, monthOffset) {
-      if (firemanId === 3) return [2, 3]; // Tue-Wed Fixed
-      const cycle = [
-        [5, 6], // Fri-Sat
-        [0, 1], // Sun-Mon
-        [6, 0]  // Sat-Sun
+    function getFiremanShiftPattern(firemanId, monthOffset) {
+      if (firemanId === 3) {
+        return decMasterData[4].rawShifts.split(','); // นายสมชาย ทุสุนา Fixed
+      }
+      const patterns = [
+        decMasterData[2].rawShifts.split(','), // Fireman 2: Fri-Sat
+        decMasterData[1].rawShifts.split(','), // Fireman 1: Sun-Mon
+        decMasterData[3].rawShifts.split(',')  // Fireman 4: Sat-Sun
       ];
       let base = 0;
-      if (firemanId === 2) base = 0; // Dec: Fri-Sat
-      if (firemanId === 1) base = 1; // Dec: Sun-Mon
-      if (firemanId === 4) base = 2; // Dec: Sat-Sun
-      return cycle[(base + monthOffset) % 3];
-    }
-
-    function getOffDaysFromPattern(pattern) {
-      const map = {
-        'SUN_MON': [0, 1],
-        'MON_TUE': [1, 2],
-        'TUE_WED': [2, 3],
-        'WED_THU': [3, 4],
-        'THU_FRI': [4, 5],
-        'FRI_SAT': [5, 6],
-        'SAT_SUN': [6, 0]
-      };
-      return map[pattern] || [6, 0];
+      if (firemanId === 2) base = 0;
+      if (firemanId === 1) base = 1;
+      if (firemanId === 4) base = 2;
+      return patterns[(base + monthOffset) % 3];
     }
 
     // Schedule Grid Data State
     const scheduleData = ref([]);
     const replacementLogs = ref([]);
 
-    // Initialize or load schedule from LocalStorage
     function initSchedule() {
-      const saved = localStorage.getItem(`schedule_cycle_${selectedCycleIndex.value}`);
+      // Clear old broken cache keys automatically
+      localStorage.removeItem('schedule_cycle_0');
+      localStorage.removeItem('schedule_cycle_1');
+
+      const cycle = currentCycle.value;
+      const storageKey = `security_work_schedule_cycle_${cycle.id}`;
+      const saved = localStorage.getItem(storageKey);
       if (saved) {
         scheduleData.value = JSON.parse(saved);
         return;
       }
 
       const daysCount = currentCycleDays.value.length;
-      const monthOffset = selectedCycleIndex.value;
+      const masterSource = (cycle.id === 'nov') ? novMasterData : decMasterData;
+      const monthOffset = cycle.monthOffset;
 
-      scheduleData.value = initialRoster.map(g => {
-        const shifts = [];
-        let offDays = [];
-
-        if (g.isFireman) {
-          offDays = getFiremanOffDays(g.firemanId, monthOffset);
+      scheduleData.value = masterSource.map(g => {
+        let basePattern = [];
+        if (g.isFireman && cycle.id !== 'nov') {
+          basePattern = getFiremanShiftPattern(g.firemanId, monthOffset);
         } else {
-          offDays = getOffDaysFromPattern(g.offPattern);
+          basePattern = g.rawShifts.split(',');
         }
 
+        const shifts = [];
         for (let d = 0; d < daysCount; d++) {
-          const dt = currentCycleDays.value[d].date;
-          const dayOfWeek = dt.getDay();
-
-          if (offDays.includes(dayOfWeek)) {
-            shifts.push('H');
-          } else {
-            if (g.mainShift === 'D') {
-              shifts.push('D');
-            } else {
-              // Rotation pattern
-              shifts.push((d % 14 < 7) ? 'D' : 'N');
-            }
-          }
+          shifts.push(basePattern[d % basePattern.length]);
         }
 
         return {
@@ -166,6 +271,7 @@ createApp({
           code: g.code,
           name: g.name,
           isSpare: g.isSpare,
+          isReliefPool: g.isReliefPool || false,
           replacementName: null,
           replacementType: null,
           shifts
@@ -176,17 +282,19 @@ createApp({
     }
 
     function saveSchedule() {
-      localStorage.setItem(`schedule_cycle_${selectedCycleIndex.value}`, JSON.stringify(scheduleData.value));
+      const cycle = currentCycle.value;
+      const storageKey = `security_work_schedule_cycle_${cycle.id}`;
+      localStorage.setItem(storageKey, JSON.stringify(scheduleData.value));
     }
 
-    // Daily Contract Goals
+    // Daily Contract Goals:
     // Mon-Fri: D=19, N=10 | Sat: D=17, N=10 | Sun: D=16, N=10
     function getDailyContract(dateObj, shiftType) {
       if (shiftType === 'N') return 10;
       const day = dateObj.getDay();
-      if (day === 0) return 16; // Sunday
-      if (day === 6) return 17; // Saturday
-      return 19; // Weekdays
+      if (day === 0) return 16; // Sunday: reduce Reception 2, Site Mgr 1
+      if (day === 6) return 17; // Saturday: reduce Reception 2
+      return 19; // Weekday
     }
 
     function getDailyActual(dayIdx, shiftType) {
@@ -241,11 +349,9 @@ createApp({
     function checkGDDL(guard) {
       if (!guard) return true;
       const totalWork = countShifts(guard, 'D') + countShifts(guard, 'N');
-      // In a 30-day cycle, standard is ~22 days work, 8 days off
       return totalWork <= 22;
     }
 
-    // Shift styling helpers
     function isWeekend(dateObj) {
       const d = dateObj.getDay();
       return d === 0 || d === 6;
@@ -253,8 +359,8 @@ createApp({
 
     function getShiftStyle(shift) {
       switch (shift) {
-        case 'D': return 'bg-amber-100/80 text-amber-900 border-amber-200';
-        case 'N': return 'bg-indigo-100/80 text-indigo-900 border-indigo-200';
+        case 'D': return 'bg-amber-100/90 text-amber-900 border-amber-200';
+        case 'N': return 'bg-indigo-100/90 text-indigo-900 border-indigo-200';
         case 'H': return 'bg-slate-200/70 text-slate-500 border-slate-300';
         case 'L': return 'bg-red-200 text-red-900 border-red-300';
         case 'PH': return 'bg-purple-200 text-purple-900 border-purple-300';
@@ -303,7 +409,7 @@ createApp({
     const leaveForm = ref({
       guardId: 1,
       date: new Date().toISOString().split('T')[0],
-      replaceType: 'สแปร์นอก', // 'คนประจำมาแทน' | 'สแปร์นอก'
+      replaceType: 'สแปร์นอก',
       replacementName: ''
     });
 
@@ -319,7 +425,6 @@ createApp({
         const previousShift = guard.shifts[dayIdx];
         guard.shifts[dayIdx] = 'L'; // Set to Leave
 
-        // Record replacement log
         if (leaveForm.value.replacementName) {
           replacementLogs.value.push({
             date: leaveForm.value.date,
@@ -369,12 +474,11 @@ createApp({
     });
 
     const totalSpareDays = computed(() => {
-      return replacementLogs.value.length + (scheduleData.value.filter(g => g.isSpare).length * 22);
+      return replacementLogs.value.length + (scheduleData.value.filter(g => g.isSpare && !g.isReliefPool).length * 22);
     });
 
     const billingSpareLog = computed(() => {
       if (replacementLogs.value.length > 0) return replacementLogs.value;
-      // Mock some realistic spare logs for display
       return [
         { date: '2026-11-25', shift: 'D', name: 'นายมานพ มุ่งมั่น', position: 'Guard ทดแทน No.31', gddlPass: true },
         { date: '2026-11-28', shift: 'N', name: 'นายวรวิทย์ แจ่มใส', position: 'Guard ทดแทนคนลา', gddlPass: true },
@@ -387,7 +491,6 @@ createApp({
       window.print();
     }
 
-    // Auto-generate Next Cycle
     function autoGenerateNextCycle() {
       if (confirm('คุณต้องการรันตารางเวรในรอบถัดไปอัตโนมัติหรือไม่?\n(ระบบจะหมุนกะ Fireman ให้อัตโนมัติ)')) {
         selectedCycleIndex.value = (selectedCycleIndex.value + 1) % payrollCycles.value.length;
@@ -396,7 +499,6 @@ createApp({
       }
     }
 
-    // Auth handler
     function handleLogin() {
       if (loginPin.value === '1234' || loginPin.value === 'continental') {
         isAdmin.value = true;
