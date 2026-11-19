@@ -19,19 +19,15 @@
     ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
-    /* Sticky columns styling for Table Freeze */
-    .sticky-col-1 { position: sticky; left: 0px; z-index: 20; }
-    .sticky-col-2 { position: sticky; left: 42px; z-index: 20; }
-    /* .sticky-col-3 and .sticky-col-4 removed – only first two columns stay sticky for proper scrolling */
-    .sticky-col-4 { position: sticky; left: 285px; z-index: 20; box-shadow: 3px 0 6px -1px rgba(0, 0, 0, 0.12); }
+    /* Sticky columns: freeze only No. + Name (≈164px) so the date columns (23 ... 22) stay scrollable on phones */
+    .sticky-col-1 { position: sticky; left: 0; z-index: 20; width: 36px; min-width: 36px; max-width: 36px; }
+    .sticky-col-4 { position: sticky; left: 36px; z-index: 20; width: 128px; min-width: 128px; max-width: 128px;
+                    white-space: normal; line-height: 1.25; box-shadow: 3px 0 6px -1px rgba(0, 0, 0, 0.12); }
+    th.sticky-col-1, th.sticky-col-4 { z-index: 35 !important; }
 
-    /* Sticky header intersect with sticky column */
-    th.sticky-col-1, th.sticky-col-2, th.sticky-col-3, th.sticky-col-4 {
-      z-index: 35 !important;
-    }
-    tfoot td.sticky-col-1, tfoot td.sticky-col-2, tfoot td.sticky-col-3, tfoot td.sticky-col-4 {
-      z-index: 35 !important;
-    }
+    /* Scrolling table: swipe sideways inside the table, vertical scroll of the page still works */
+    .table-container { overflow: auto; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+    .schedule-table { width: max-content; min-width: 100%; }
 
     @media print {
       body * { visibility: hidden; }
@@ -208,16 +204,16 @@
         <!-- Interactive Schedule Table with Freeze Header & Left Columns -->
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           <div class="overflow-x-auto table-container relative">
-            <table class="w-full text-xs text-left border-collapse">
+            <table class="schedule-table text-xs text-left border-collapse">
               
               <!-- Sticky Top Header -->
               <thead class="sticky top-0 bg-slate-900 text-white z-30">
                 <tr>
                   <!-- Sticky Left 4 Columns -->
-                  <th class="py-1.5 px-2 font-semibold text-center border-b border-slate-700 w-11 bg-slate-900 sticky-col-1">No.</th>
-                  <th class="py-1.5 px-2 font-semibold border-b border-slate-700 w-40 bg-slate-900 sticky-col-2">ตำแหน่ง (Position)</th>
-                  <th class="py-1.5 px-2 font-semibold border-b border-slate-700 w-24 bg-slate-900 sticky-col-3">รหัส Code</th>
-                  <th class="py-1.5 px-2 font-semibold border-b border-slate-700 w-44 bg-slate-900 sticky-col-4">ชื่อ - นามสกุล</th>
+                  <th class="py-1.5 px-2 font-semibold text-center border-b border-slate-700 bg-slate-900 sticky-col-1">No.</th>
+                  <th class="py-1.5 px-2 font-semibold border-b border-slate-700 min-w-[130px] bg-slate-900">ตำแหน่ง (Position)</th>
+                  <th class="py-1.5 px-2 font-semibold border-b border-slate-700 min-w-[90px] bg-slate-900">รหัส Code</th>
+                  <th class="py-1.5 px-2 font-semibold border-b border-slate-700 bg-slate-900 sticky-col-4">ชื่อ - นามสกุล</th>
                   
                   <!-- Dynamic Day Columns (23rd to 22nd) -->
                   <th v-for="(day, dIdx) in currentCycleDays" :key="dIdx" 
@@ -257,20 +253,20 @@
                   </td>
                   
                   <!-- Sticky Column 2: Position -->
-                  <td class="py-1 px-2 font-medium text-slate-700 truncate max-w-[160px] bg-white group-hover:bg-amber-50 sticky-col-2">
+                  <td class="py-1 px-2 font-medium text-slate-700 whitespace-nowrap bg-white group-hover:bg-amber-50">
                     {{ guard.position }}
                     <span v-if="guard.isSpare" class="ml-1 text-[9px] bg-red-100 text-red-700 px-1 py-0.2 rounded font-bold">รอสแปร์</span>
                   </td>
                   
                   <!-- Sticky Column 3: Code -->
-                  <td class="py-1 px-2 font-mono text-slate-500 text-[11px] bg-white group-hover:bg-amber-50 sticky-col-3">
+                  <td class="py-1 px-2 font-mono text-slate-500 text-[11px] whitespace-nowrap bg-white group-hover:bg-amber-50">
                     {{ guard.code || '-' }}
                   </td>
                   
                   <!-- Sticky Column 4: Name -->
-                  <td class="py-1 px-2 font-semibold text-slate-900 truncate max-w-[175px] bg-white group-hover:bg-amber-50 sticky-col-4">
+                  <td class="py-1 px-2 font-semibold text-slate-900 bg-white group-hover:bg-amber-50 sticky-col-4">
                     {{ guard.name }}
-                    <span v-if="guard.replacementName" class="block text-[9px] text-amber-700 font-normal truncate" :title="guard.replacementName">
+                    <span v-if="guard.replacementName" class="block text-[9px] text-amber-700 font-normal" :title="guard.replacementName">
                       ↳ แทน: {{ guard.replacementName }}
                     </span>
                   </td>
@@ -305,9 +301,9 @@
               <tfoot class="sticky bottom-0 bg-slate-900 text-white text-xs border-t-2 border-amber-500 z-30 shadow-lg">
                 <!-- Day Shift Combined Row -->
                 <tr class="border-b border-slate-800 bg-slate-900">
-                  <td colspan="4" class="py-1 px-2.5 text-right font-bold text-amber-400 whitespace-nowrap sticky-col-1 bg-slate-900">
-                    ☀️ รวมกะเช้า (จริง/สัญญา):
-                  </td>
+                  <td class="sticky-col-1 bg-slate-900"></td>
+                  <td colspan="2" class="bg-slate-900"></td>
+                  <td class="sticky-col-4 bg-slate-900 text-right font-bold text-amber-400 text-[10px] px-1.5">☀️ เช้า จริง/สัญญา</td>
                   <td v-for="(day, dIdx) in currentCycleDays" :key="'sum-d-'+dIdx" 
                       class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800"
                       :class="getDailySpareGap(dIdx, day.date, 'D') > 0 ? 'bg-red-900/90 text-white' : ''">
@@ -321,9 +317,9 @@
                 </tr>
                 <!-- Night Shift Combined Row -->
                 <tr class="bg-slate-950">
-                  <td colspan="4" class="py-1 px-2.5 text-right font-bold text-indigo-300 whitespace-nowrap sticky-col-1 bg-slate-950">
-                    🌙 รวมกะดึก (จริง/สัญญา):
-                  </td>
+                  <td class="sticky-col-1 bg-slate-950"></td>
+                  <td colspan="2" class="bg-slate-950"></td>
+                  <td class="sticky-col-4 bg-slate-950 text-right font-bold text-indigo-300 text-[10px] px-1.5">🌙 ดึก จริง/สัญญา</td>
                   <td v-for="(day, dIdx) in currentCycleDays" :key="'sum-n-'+dIdx" 
                       class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800"
                       :class="getDailySpareGap(dIdx, day.date, 'N') > 0 ? 'bg-red-900/90 text-white' : ''">

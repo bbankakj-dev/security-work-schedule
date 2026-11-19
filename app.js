@@ -244,8 +244,8 @@ createApp({
       { no: 1, position: 'Site manager', code: 'SE2403575', name: 'นายอัครเดช เจริญสุข', startDate: '2024-03-01', isVacant: false, workHoursType: '08:00 - 20:00' },
       { no: 2, position: 'Security Fire Man 1', code: 'SE2402366', name: 'น.ส.ปณิตา โอละลึก', startDate: '2024-02-15', isVacant: false, workHoursType: '08:00 - 20:00' },
       { no: 3, position: 'Security Fire Man 2', code: 'SE2601481', name: 'น.ส.พรธิตา ศรีกุลวงษ์', startDate: '2026-01-10', isVacant: false, workHoursType: '08:00 - 20:00' },
-      { no: 4, position: 'Security Fire Man 4', code: 'SE2604787', name: 'นายจิรโชติ ธงชัย', startDate: '2026-04-01', isVacant: false, workHoursType: '08:00 - 20:00' },
-      { no: 5, position: 'Security Fire Man 3', code: 'SE2303758', name: 'นายสมชาย ทุสุนา', startDate: '2023-03-20', isVacant: false, workHoursType: '08:00 - 20:00' },
+      { no: 4, position: 'Security Fire Man 3', code: 'SE2604787', name: 'นายจิรโชติ ธงชัย', startDate: '2026-04-01', isVacant: false, workHoursType: '08:00 - 20:00' },
+      { no: 5, position: 'Security Fire Man 4', code: 'SE2303758', name: 'นายสมชาย ทุสุนา', startDate: '2023-03-20', isVacant: false, workHoursType: '08:00 - 20:00' },
       { no: 6, position: 'Senior Supervisor', code: 'SE2400110', name: 'นายอุสมาน แลยะลี', startDate: '2024-01-05', isVacant: false, workHoursType: '06:30 - 18:30' },
       { no: 7, position: 'Supervisor', code: 'SE2303757', name: 'นายอนุสรณ์ ศิริวัฒนกุล', startDate: '2023-03-15', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
       { no: 8, position: 'Supervisor', code: 'SE2500652', name: 'นายปิยวัฒน์ บุญเฮง', startDate: '2025-01-12', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
@@ -261,7 +261,7 @@ createApp({
       { no: 18, position: 'Emergency Driver', code: 'SE2500083', name: 'นายเรืองฤทธิ์ คำผง', startDate: '2025-01-02', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
       { no: 19, position: 'Admin Day - Gate 1', code: 'SE2303764', name: 'น.ส.วิเชียร แมดพิมาย', startDate: '2023-03-18', isVacant: false, workHoursType: '06:30 - 18:30' },
       { no: 20, position: 'Admin Day - Gate 2', code: 'SE2500239', name: 'น.ส. อรนุช สายปัญญา', startDate: '2025-01-05', isVacant: false, workHoursType: '06:30 - 18:30' },
-      { no: 21, position: 'Guard', code: 'SE2500384', name: 'น.ส. ปทุมพร ขวัญมา', startDate: '2025-01-08', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
+      { no: 21, position: 'Guard', code: '', name: '', startDate: '', isVacant: true, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' }, // Vacant
       { no: 22, position: 'Guard', code: 'SE172615', name: 'นายประเสริฐ มูลฤทธิ์', startDate: '2017-06-15', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
       { no: 23, position: 'Guard', code: 'SE2503274', name: 'นายวัลลภ พิรักษา', startDate: '2025-03-10', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
       { no: 24, position: 'Guard', code: 'SE2504780', name: 'นายจุลชาติ แถลงกัณฑ์', startDate: '2025-04-18', isVacant: false, workHoursType: '06:30 - 18:30 / 18:30 - 06:30' },
@@ -290,6 +290,20 @@ createApp({
       const saved = localStorage.getItem('sws_permanent_staff');
       if (saved) {
         permanentStaff.value = JSON.parse(saved);
+        // ย้ายข้อมูลเก่า: Fireman ที่หยุด อ-พ (No.5) ต้องเป็นลำดับ 4, อีก 3 คนหมุนเวียนเป็น Fireman 1-3
+        // No.21 ว่าง (ลบรายชื่อเดิมออกตาม Draft Rev002)
+        const s21 = permanentStaff.value.find(x => x.no === 21);
+        if (s21 && s21.code === 'SE2500384') {
+          s21.code = ''; s21.name = ''; s21.startDate = ''; s21.isVacant = true;
+          savePermanentStaff();
+        }
+        const s4 = permanentStaff.value.find(x => x.no === 4);
+        const s5 = permanentStaff.value.find(x => x.no === 5);
+        if (s4 && s5 && s4.position === 'Security Fire Man 4' && s5.position === 'Security Fire Man 3') {
+          s4.position = 'Security Fire Man 3';
+          s5.position = 'Security Fire Man 4';
+          savePermanentStaff();
+        }
       } else {
         permanentStaff.value = defaultRoster;
         savePermanentStaff();
@@ -349,15 +363,50 @@ createApp({
     }
 
     // =========================================================================
+    // DATE HELPERS (local-time safe: toISOString() shifts the day by -1 in UTC+7)
+    // =========================================================================
+    function fmtDate(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+    function parseDate(str) {
+      const [y, m, d] = str.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    // =========================================================================
     // 11. PAYROLL CYCLES & SCHEDULE CONTINUITY ENGINE
     // =========================================================================
-    const payrollCycles = ref([
-      { id: 'dec', name: 'รอบ ธ.ค. 2026', startYear: 2026, startMonthNum: 11, startMonth: 'พ.ย.', endYear: 2026, endMonthNum: 12, endMonth: 'ธ.ค.', payDateMonth: 'ม.ค. 2027', days: 30, monthOffset: 0 },
-      { id: 'nov', name: 'รอบ พ.ย. 2026', startYear: 2026, startMonthNum: 10, startMonth: 'ต.ค.', endYear: 2026, endMonthNum: 11, endMonth: 'พ.ย.', payDateMonth: 'ธ.ค. 2026', days: 31, monthOffset: 2 },
-      { id: 'jan', name: 'รอบ ม.ค. 2027', startYear: 2026, startMonthNum: 12, startMonth: 'ธ.ค.', endYear: 2027, endMonthNum: 1, endMonth: 'ม.ค.', payDateMonth: 'ก.พ. 2027', days: 31, monthOffset: 1 },
-      { id: 'feb', name: 'รอบ ก.พ. 2027', startYear: 2027, startMonthNum: 1, startMonth: 'ม.ค.', endYear: 2027, endMonthNum: 2, endMonth: 'ก.พ.', payDateMonth: 'มี.ค. 2027', days: 28, monthOffset: 2 }
-    ]);
-    const selectedCycleIndex = ref(0);
+    // รอบเงินเดือน 23 -> 22 ของเดือนถัดไป สร้างอัตโนมัติ (ตั้งชื่อตามเดือนที่รอบสิ้นสุด, จ่ายวันที่ 1 ของเดือนถัดจากนั้น)
+    const THAI_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    function buildPayrollCycles(fromYear, fromMonth, count) {
+      const list = [];
+      for (let i = 0; i < count; i++) {
+        const endIdx = fromYear * 12 + (fromMonth - 1) + i;        // เดือนที่รอบสิ้นสุด
+        const endYear = Math.floor(endIdx / 12);
+        const endMonthNum = (endIdx % 12) + 1;
+        const startIdx = endIdx - 1;
+        const startYear = Math.floor(startIdx / 12);
+        const startMonthNum = (startIdx % 12) + 1;
+        const payIdx = endIdx + 1;
+        const payYear = Math.floor(payIdx / 12);
+        const payMonthNum = (payIdx % 12) + 1;
+        list.push({
+          id: `${endYear}-${String(endMonthNum).padStart(2, '0')}`,
+          name: `รอบ ${THAI_MONTHS[endMonthNum - 1]} ${endYear}`,
+          startYear, startMonthNum, startMonth: THAI_MONTHS[startMonthNum - 1],
+          endYear, endMonthNum, endMonth: THAI_MONTHS[endMonthNum - 1],
+          payDateMonth: `${THAI_MONTHS[payMonthNum - 1]} ${payYear}`
+        });
+      }
+      return list;
+    }
+    // พ.ย. 2026 ถึง ธ.ค. 2027 (14 รอบ)
+    const payrollCycles = ref(buildPayrollCycles(2026, 11, 14));
+    // เริ่มต้นที่รอบ ธ.ค. 2026 (23 พ.ย. - 22 ธ.ค.) ซึ่งเป็นรอบของ Draft
+    const selectedCycleIndex = ref(Math.max(0, payrollCycles.value.findIndex(c => c.id === '2026-12')));
     const currentCycle = computed(() => payrollCycles.value[selectedCycleIndex.value]);
 
     const currentCycleDays = computed(() => {
@@ -369,7 +418,7 @@ createApp({
       const end = new Date(cycle.endYear, cycle.endMonthNum - 1, 22);
 
       while (cur <= end) {
-        const dateStr = cur.toISOString().split('T')[0];
+        const dateStr = fmtDate(cur);
         days.push({
           date: new Date(cur),
           dateString: dateStr,
@@ -386,10 +435,10 @@ createApp({
     // Exact Master December Baseline (Golden Roster)
     const masterBaselineShifts = [
       "D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D", // 1 Site Mgr
-      "H,D,D,D,D,H,D,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D", // 2 Fireman 1
-      "D,D,D,D,H,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D", // 3 Fireman 2
-      "D,D,D,D,D,H,H,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D", // 4 Fireman 4
-      "D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H", // 5 Fireman 3 (Tue-Wed Fixed)
+      "H,D,D,D,D,H,D,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D", // 2 Fireman 1 (หมุนเวียนรายเดือน)
+      "D,D,D,D,H,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D", // 3 Fireman 2 (หมุนเวียนรายเดือน)
+      "D,D,D,D,D,H,H,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D", // 4 Fireman 3 (หมุนเวียนรายเดือน)
+      "D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H", // 5 Fireman 4 (หยุด อ-พ คงที่)
       "D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D", // 6 Snr Sup
       "D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D,D,H,H,D,N,N,N,N,H,H,D,D,D,D", // 7 Sup
       "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H", // 8 Sup
@@ -405,7 +454,7 @@ createApp({
       "D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H", // 18 Driver
       "H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D", // 19 Admin Gate 1
       "D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D", // 20 Admin Gate 2
-      "D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D", // 21 Guard
+      "D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D,H,H,D,D,D,D,D", // 21 Guard (ว่าง/สแปร์)
       "N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H", // 22 Guard
       "N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N", // 23 Guard
       "N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N,N,H,H,D,D,D,D,D,H,H,N,N,N,N", // 24 Guard
@@ -427,54 +476,82 @@ createApp({
       "H,H,D,N,H,H,D,H,H,D,D,H,H,N,H,H,D,N,H,H,D,H,H,D,D,H,H,N,H,H"  // 40 Spare Relief Pool
     ];
 
-    // Fireman Rotation Helper (3-step loop: Fri-Sat -> Sun-Mon -> Sat-Sun)
-    function getFiremanPattern(firemanId, monthOffset) {
-      if (firemanId === 3) {
-        return masterBaselineShifts[4].split(','); // Fireman 3 นายสมชาย Tue-Wed Fixed
-      }
-      const patterns = [
-        masterBaselineShifts[2].split(','), // Fri-Sat
-        masterBaselineShifts[1].split(','), // Sun-Mon
-        masterBaselineShifts[3].split(',')  // Sat-Sun
-      ];
-      let base = 0;
-      if (firemanId === 2) base = 0;
-      if (firemanId === 1) base = 1;
-      if (firemanId === 4) base = 2;
-      return patterns[(base + monthOffset) % 3];
+    // =========================================================================
+    // WEEKDAY-ANCHORED PATTERN ENGINE
+    // วันหยุด/ลำดับกะของแต่ละตำแหน่งยึด "วันในสัปดาห์" ไม่ใช่ "วันที่"
+    // - Draft เริ่มจันทร์ 23 พ.ย. 2026 (offset 0) ยาว 30 วัน
+    // - ทุกตำแหน่งวนซ้ำทุก 14 วัน (D/N สลับสัปดาห์) ใช้ช่วงที่นิ่งแล้วของ Draft (วันที่ 14-27) เป็นแม่แบบ
+    // - ยกเว้น Fireman 1-3 ที่หมุนวันหยุดทุกรอบเงินเดือน (ดูด้านล่าง) ส่วน Fireman 4 หยุด อ-พ คงที่
+    // =========================================================================
+    const PATTERN_ANCHOR_UTC = Date.UTC(2026, 10, 23); // Monday 23 Nov 2026
+    const DRAFT_LENGTH = 30;
+    const draftRows = masterBaselineShifts.map(r => r.split(','));
+    const weeklyCycles = draftRows.map(r => r.slice(14, 28)); // 14-day steady-state cycle
+
+    function dayOffsetFromAnchor(dateObj) {
+      const utc = Date.UTC(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+      return Math.round((utc - PATTERN_ANCHOR_UTC) / 86400000);
+    }
+
+    // ---- Fireman 1-3: หมุนเวียนทุกรอบเงินเดือน  หยุด ศ-ส (A) -> อา-จ (B) -> ส-อา (C) -> ศ-ส (A) ...
+    // ลำดับสัปดาห์ (จันทร์..อาทิตย์)
+    const FIREMAN_STEADY = [
+      ['D','D','D','D','H','H','D'], // A: หยุด ศ-ส
+      ['H','D','D','D','D','D','H'], // B: หยุด อา-จ
+      ['D','D','D','D','D','H','H']  // C: หยุด ส-อา
+    ];
+    // สัปดาห์เปลี่ยนผ่าน (สัปดาห์แรกที่เริ่มสลับ) ตาม Draft ธ.ค. 2026 — index = รูปแบบเดิมก่อนสลับ
+    const FIREMAN_TRANSITION = [
+      ['D','D','D','D','H','D','H'], // A -> B
+      ['H','D','D','D','D','H','D'], // B -> C
+      ['D','D','D','D','D','H','H']  // C -> A
+    ];
+    // รูปแบบของแต่ละแถวในรอบ ธ.ค. 2026 (รอบที่ k = 0): แถว Fireman1 = C, Fireman2 = B, Fireman3 = A
+    const FIREMAN_START = { 1: 2, 2: 1, 3: 0 };
+
+    const mod = (n, m) => ((n % m) + m) % m;
+    const utcDayNum = (y, m, d) => Math.round(Date.UTC(y, m, d) / 86400000);
+    // วันจันทร์แรก (หรือวันเริ่มรอบเอง ถ้าตรงกับวันจันทร์) นับจากวันที่ 23 ของรอบที่ k  (k=0 → 23 พ.ย. 2026)
+    function cyclePivot(k) {
+      const start = utcDayNum(2026, 10 + k, 23);
+      const monIdx = mod(start + 3, 7); // 1970-01-01 = Thu → Mon = 0
+      return start + mod(7 - monIdx, 7);
+    }
+
+    function getFiremanShift(rowIdx, dateObj) {
+      const day = utcDayNum(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+      const weekday = mod(day + 3, 7); // Mon = 0 ... Sun = 6
+      let k = (dateObj.getFullYear() * 12 + dateObj.getMonth()) - (2026 * 12 + 10) + 1;
+      while (cyclePivot(k) > day) k--;
+      const week = Math.floor((day - cyclePivot(k)) / 7);
+      const now = mod(FIREMAN_START[rowIdx] + k, 3);
+      if (week === 0) return FIREMAN_TRANSITION[mod(now - 1, 3)][weekday];
+      return FIREMAN_STEADY[now][weekday];
+    }
+
+    function getPatternShift(rowIdx, dateObj) {
+      if (FIREMAN_START[rowIdx] !== undefined) return getFiremanShift(rowIdx, dateObj);
+      const off = dayOffsetFromAnchor(dateObj);
+      if (off >= 0 && off < DRAFT_LENGTH) return draftRows[rowIdx][off];
+      return weeklyCycles[rowIdx][mod(off, 14)];
     }
 
     const scheduleData = ref([]);
 
     function initSchedule() {
       const cycle = currentCycle.value;
-      const storageKey = `sws_schedule_cycle_${cycle.id}`;
+      const storageKey = `sws_schedule_v3_${cycle.id}`;
       const saved = localStorage.getItem(storageKey);
       if (saved) {
         scheduleData.value = JSON.parse(saved);
         return;
       }
 
-      const daysCount = currentCycleDays.value.length;
-      const monthOffset = cycle.monthOffset;
+      const cycleDays = currentCycleDays.value;
 
       scheduleData.value = permanentStaff.value.map((staff, idx) => {
-        let base = [];
-        if (staff.position.includes('Fire Man')) {
-          let fId = 1;
-          if (staff.position.includes('1')) fId = 1;
-          if (staff.position.includes('2')) fId = 2;
-          if (staff.position.includes('3')) fId = 3;
-          if (staff.position.includes('4')) fId = 4;
-          base = getFiremanPattern(fId, monthOffset);
-        } else {
-          base = masterBaselineShifts[idx].split(',');
-        }
-
-        const shifts = [];
-        for (let d = 0; d < daysCount; d++) {
-          shifts.push(base[d % base.length]);
-        }
+        // ลำดับใน permanentStaff ตรงกับแถวใน Draft (No.1 = แถว 1 ... No.39 = แถว 39)
+        const shifts = cycleDays.map(d => getPatternShift(idx, d.date));
 
         return {
           id: staff.no,
@@ -491,11 +568,7 @@ createApp({
       });
 
       // Add Row 40 Relief Pool
-      const reliefShifts = [];
-      const reliefBase = masterBaselineShifts[39].split(',');
-      for (let d = 0; d < daysCount; d++) {
-        reliefShifts.push(reliefBase[d % reliefBase.length]);
-      }
+      const reliefShifts = currentCycleDays.value.map(d => getPatternShift(39, d.date));
       scheduleData.value.push({
         id: 40,
         no: 40,
@@ -515,14 +588,14 @@ createApp({
 
     function saveSchedule() {
       const cycle = currentCycle.value;
-      const storageKey = `sws_schedule_cycle_${cycle.id}`;
+      const storageKey = `sws_schedule_v3_${cycle.id}`;
       localStorage.setItem(storageKey, JSON.stringify(scheduleData.value));
     }
 
     function resetScheduleToMaster() {
       if (confirm('⚠️ ต้องการรีเซ็ตตารางเวรของรอบนี้กลับสู่ Master Draft ดั้งเดิมหรือไม่?\n(ข้อมูลการสลับกะที่เคยแก้ไขด้วยมือจะถูกแทนที่)')) {
         const cycle = currentCycle.value;
-        localStorage.removeItem(`sws_schedule_cycle_${cycle.id}`);
+        localStorage.removeItem(`sws_schedule_v3_${cycle.id}`);
         initSchedule();
         alert('✅ รีเซ็ตตารางเวรกลับสู่ค่าเริ่มต้นเรียบร้อยแล้ว');
       }
@@ -537,7 +610,7 @@ createApp({
       guardNo: 1,
       guardCode: '',
       guardName: '',
-      date: new Date().toISOString().split('T')[0],
+      date: fmtDate(new Date()),
       reason: 'ลากิจ / ลาป่วย',
       replaceType: 'สแปร์นอก', // 'คนประจำมาแทน (OT)' | 'สแปร์นอก'
       replacementCode: '',
@@ -654,12 +727,12 @@ createApp({
 
     const billingDays = computed(() => {
       const days = [];
-      let cur = new Date(billingStartDate.value);
-      const end = new Date(billingEndDate.value);
+      let cur = parseDate(billingStartDate.value);
+      const end = parseDate(billingEndDate.value);
       const dayNamesTH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
       while (cur <= end) {
-        const dateStr = cur.toISOString().split('T')[0];
+        const dateStr = fmtDate(cur);
         days.push({
           date: new Date(cur),
           dateString: dateStr,
@@ -716,12 +789,7 @@ createApp({
     });
 
     const billingSpareDispatches = computed(() => {
-      const start = new Date(billingStartDate.value);
-      const end = new Date(billingEndDate.value);
-      return leaveRecords.value.filter(r => {
-        const dt = new Date(r.date);
-        return dt >= start && dt <= end;
-      });
+      return leaveRecords.value.filter(r => r.date >= billingStartDate.value && r.date <= billingEndDate.value);
     });
 
     function printBilling() {
