@@ -1,11 +1,50 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Read: All guards can view schedules and summaries
+
+    // ---- ฟังก์ชันช่วยตรวจสิทธิ์ ----
+    // ต้องล็อกอินด้วย Firebase Auth และไม่ใช่ Anonymous (เดิม `request.auth != null` ผ่านแม้เป็น Anonymous)
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function profilePath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+    // เป็น Supervisor/Admin ที่ Admin อนุมัติแล้ว (status == ACTIVE)
+    function isActiveStaff() {
+      return signedIn() && exists(profilePath())
+        && get(profilePath()).data.status == 'ACTIVE'
+        && get(profilePath()).data.role in ['SUPERVISOR', 'ADMIN'];
+    }
+    function isAdmin() {
+      return isActiveStaff() && get(profilePath()).data.role == 'ADMIN';
+    }
+
+    // ---- บัญชีผู้ใช้ ----
+    match /users/{uid} {
+      // อ่านได้เฉพาะของตัวเอง หรือ Admin
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // สมัครใหม่ได้เฉพาะ SUPERVISOR สถานะ PENDING (กันสมัครตัวเองเป็น ADMIN / ACTIVE)
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'SUPERVISOR'
+        && request.resource.data.status == 'PENDING';
+      // อนุมัติ/ระงับ/ลบ ได้เฉพาะ Admin
+      allow update, delete: if isAdmin();
+    }
+
+    // ---- ข้อมูลที่ รปภ. ทั่วไปดูได้ (อ่านสาธารณะ) / แก้ไขได้เฉพาะ Supervisor-Admin ที่อนุมัติแล้ว ----
+    // หมายเหตุ: ชื่อ collection ด้านล่างเป็นชื่อสมมติ ปรับให้ตรงกับโค้ดตอนเชื่อม Firestore จริง
+    match /schedules/{doc=**}    { allow read: if true; allow write: if isActiveStaff(); }
+    match /leaveRecords/{doc=**} { allow read: if true; allow write: if isActiveStaff(); }
+    match /roster/{doc=**}       { allow read: if true; allow write: if isActiveStaff(); }
+
+    // ---- ตั้งค่า / วันนักขัตฤกษ์: แก้ได้เฉพาะ Admin ----
+    match /settings/{doc=**}     { allow read: if true; allow write: if isAdmin(); }
+
+    // ---- อย่างอื่นทั้งหมดปิด ----
     match /{document=**} {
-      allow read: if true;
-      // Write: Only authenticated Supervisors / Admins
-      allow write: if request.auth != null;
+      allow read, write: if false;
     }
   }
 }

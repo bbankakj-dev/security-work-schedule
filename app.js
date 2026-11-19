@@ -6,6 +6,20 @@
 
 const { createApp, ref, computed, watch, onMounted } = Vue;
 
+// อ่าน localStorage แบบปลอดภัย: ถ้าข้อมูลเสีย/อ่านไม่ได้ ให้ใช้ค่า fallback แทนที่จะทำให้ทั้งเว็บล่ม
+function safeParse(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    console.warn('ข้อมูลใน localStorage เสียหาย (' + key + ') ใช้ค่าเริ่มต้นแทน', e);
+    return fallback;
+  }
+}
+
+// มาตรฐาน GDDL 5/2: ชั่วโมงทำงานรวมไม่เกิน 60 ชม. ต่อสัปดาห์ (จันทร์-อาทิตย์)
+const GDDL_MAX_WEEK_HOURS = 60;
+
 createApp({
   setup() {
     // Current Active Tab
@@ -48,18 +62,25 @@ createApp({
     const userAccounts = ref([]);
 
     function initUsers() {
-      const saved = localStorage.getItem('sws_user_accounts');
-      if (saved) {
-        userAccounts.value = JSON.parse(saved);
+      const saved = safeParse('sws_user_accounts', null);
+      if (Array.isArray(saved) && saved.length) {
+        userAccounts.value = saved;
       } else {
         userAccounts.value = defaultUsers;
         saveUsers();
       }
 
-      // Restore session
-      const savedSession = localStorage.getItem('sws_active_session');
-      if (savedSession) {
-        currentUser.value = JSON.parse(savedSession);
+      // Restore session: เก็บเฉพาะ username (ไม่เก็บรหัสผ่านไว้ใน session) แล้วค้นหาบัญชีล่าสุดทุกครั้ง
+      // บัญชีที่ถูกระงับ/ลบ จะไม่ถูกกู้สิทธิ์กลับมา (รองรับ session แบบเก่าที่เก็บเป็น object ด้วย)
+      const rawSession = safeParse('sws_active_session', null);
+      const sessionUsername = typeof rawSession === 'string' ? rawSession : (rawSession && rawSession.username);
+      if (sessionUsername) {
+        const u = userAccounts.value.find(a => a.username === sessionUsername && a.status === 'ACTIVE');
+        if (u) {
+          currentUser.value = u;
+        } else {
+          localStorage.removeItem('sws_active_session');
+        }
       }
     }
 
@@ -93,7 +114,7 @@ createApp({
       }
 
       currentUser.value = u;
-      localStorage.setItem('sws_active_session', JSON.stringify(u));
+      localStorage.setItem('sws_active_session', JSON.stringify(u.username));
       showLoginModal.value = false;
       loginForm.value = { username: '', password: '' };
       alert(`✅ ยินดีต้อนรับคุณ ${u.name} เข้าสู่ระบบ (${u.role === 'ADMIN' ? 'Site Manager / Admin' : 'Supervisor'})`);
@@ -177,6 +198,13 @@ createApp({
       return { text: 'วันหยุด (H)', hours: 0, start: '-', end: '-' };
     }
 
+    // ชั่วโมงทำงานของกะหนึ่งๆ (D / PH นับเป็นกะเช้า, N = กะดึก, H / L = 0)
+    function shiftHours(position, shift) {
+      if (shift === 'D' || shift === 'PH') return getPositionWorkHours(position, 'D').hours;
+      if (shift === 'N') return getPositionWorkHours(position, 'N').hours;
+      return 0;
+    }
+
     // =========================================================================
     // 7. PUBLIC HOLIDAYS (Admin Managed)
     // =========================================================================
@@ -192,9 +220,9 @@ createApp({
     const newHoliday = ref({ date: '', name: '' });
 
     function initHolidays() {
-      const saved = localStorage.getItem('sws_public_holidays');
-      if (saved) {
-        publicHolidays.value = JSON.parse(saved);
+      const saved = safeParse('sws_public_holidays', null);
+      if (Array.isArray(saved)) {
+        publicHolidays.value = saved;
       } else {
         publicHolidays.value = defaultHolidays;
         saveHolidays();
@@ -287,9 +315,9 @@ createApp({
     const showStaffModal = ref(false);
 
     function initPermanentStaff() {
-      const saved = localStorage.getItem('sws_permanent_staff');
-      if (saved) {
-        permanentStaff.value = JSON.parse(saved);
+      const saved = safeParse('sws_permanent_staff', null);
+      if (Array.isArray(saved) && saved.length) {
+        permanentStaff.value = saved;
         // ย้ายข้อมูลเก่า: Fireman ที่หยุด อ-พ (No.5) ต้องเป็นลำดับ 4, อีก 3 คนหมุนเวียนเป็น Fireman 1-3
         // No.21 ว่าง (ลบรายชื่อเดิมออกตาม Draft Rev002)
         const s21 = permanentStaff.value.find(x => x.no === 21);
@@ -349,16 +377,21 @@ createApp({
       }
     }
 
-    function syncStaffToSchedule() {
-      // Sync names and vacancy to scheduleData
+    // ซิงก์ ตำแหน่ง/รหัส/ชื่อ/สถานะว่าง จากทะเบียน รปภ.ประจำ ลงในแถวตารางเวร
+    function syncRowsWithRoster(rows) {
       permanentStaff.value.forEach(p => {
-        const row = scheduleData.value.find(s => s.no === p.no);
+        const row = rows.find(s => s.no === p.no);
         if (row) {
+          row.position = p.position;
           row.code = p.code;
           row.name = p.isVacant ? `[ตำแหน่งว่าง - รอสแปร์]` : p.name;
           row.isSpare = p.isVacant;
         }
       });
+    }
+
+    function syncStaffToSchedule() {
+      syncRowsWithRoster(scheduleData.value);
       saveSchedule();
     }
 
@@ -409,8 +442,8 @@ createApp({
     const selectedCycleIndex = ref(Math.max(0, payrollCycles.value.findIndex(c => c.id === '2026-12')));
     const currentCycle = computed(() => payrollCycles.value[selectedCycleIndex.value]);
 
-    const currentCycleDays = computed(() => {
-      const cycle = currentCycle.value;
+    // วันทั้งหมดของรอบเงินเดือนหนึ่งๆ (23 -> 22)
+    function getCycleDays(cycle) {
       const days = [];
       const dayNamesTH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
@@ -430,7 +463,9 @@ createApp({
         cur.setDate(cur.getDate() + 1);
       }
       return days;
-    });
+    }
+
+    const currentCycleDays = computed(() => getCycleDays(currentCycle.value));
 
     // Exact Master December Baseline (Golden Roster)
     const masterBaselineShifts = [
@@ -538,18 +573,11 @@ createApp({
 
     const scheduleData = ref([]);
 
-    function initSchedule() {
-      const cycle = currentCycle.value;
-      const storageKey = `sws_schedule_v3_${cycle.id}`;
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        scheduleData.value = JSON.parse(saved);
-        return;
-      }
+    // สร้างแถวตารางเวรของรอบหนึ่งจากแพทเทิร์น Master (ไม่บันทึกลง localStorage)
+    function buildCycleRows(cycle) {
+      const cycleDays = getCycleDays(cycle);
 
-      const cycleDays = currentCycleDays.value;
-
-      scheduleData.value = permanentStaff.value.map((staff, idx) => {
+      const rows = permanentStaff.value.map((staff, idx) => {
         // ลำดับใน permanentStaff ตรงกับแถวใน Draft (No.1 = แถว 1 ... No.39 = แถว 39)
         const shifts = cycleDays.map(d => getPatternShift(idx, d.date));
 
@@ -568,8 +596,7 @@ createApp({
       });
 
       // Add Row 40 Relief Pool
-      const reliefShifts = currentCycleDays.value.map(d => getPatternShift(39, d.date));
-      scheduleData.value.push({
+      rows.push({
         id: 40,
         no: 40,
         position: 'Spare Relief Pool (โควตาสแปร์หมุนเวียน)',
@@ -580,9 +607,22 @@ createApp({
         workHoursType: '06:30 - 18:30 / 18:30 - 06:30',
         replacementName: null,
         replacementType: null,
-        shifts: reliefShifts
+        shifts: cycleDays.map(d => getPatternShift(39, d.date))
       });
 
+      return rows;
+    }
+
+    function initSchedule() {
+      const cycle = currentCycle.value;
+      const saved = safeParse(`sws_schedule_v3_${cycle.id}`, null);
+      if (Array.isArray(saved) && saved.length) {
+        // รอบที่เคยบันทึกไว้: ซิงก์ชื่อ/ตำแหน่งให้ตรงกับทะเบียนล่าสุด (เผื่อแก้รายชื่อตอนอยู่รอบอื่น)
+        syncRowsWithRoster(saved);
+        scheduleData.value = saved;
+        return;
+      }
+      scheduleData.value = buildCycleRows(cycle);
       saveSchedule();
     }
 
@@ -618,10 +658,8 @@ createApp({
     });
 
     function initLeaveRecords() {
-      const saved = localStorage.getItem('sws_leave_records');
-      if (saved) {
-        leaveRecords.value = JSON.parse(saved);
-      }
+      const saved = safeParse('sws_leave_records', []);
+      leaveRecords.value = Array.isArray(saved) ? saved : [];
     }
 
     function saveLeaveRecords() {
@@ -653,6 +691,23 @@ createApp({
       }
     }
 
+    // สร้างข้อความ "แทน: ..." ใต้ชื่อในตาราง จากรายการลาจริงของคนนั้นในรอบนั้น
+    // (เดิมเก็บเป็นค่าเดียวต่อแถว ทำให้ลาหลายวันแล้วชื่อคนแทนทับกัน/ยกเลิกวันหนึ่งแล้วหายหมด)
+    function refreshReplacementLabel(row, cycleId) {
+      const recs = leaveRecords.value
+        .filter(r => r.cycleId === cycleId && r.guardNo === row.no)
+        .sort((a, b) => a.date.localeCompare(b.date));
+      if (!recs.length) {
+        row.replacementName = null;
+        row.replacementType = null;
+        return;
+      }
+      row.replacementName = recs
+        .map(r => `${r.replacementName} (${r.replacementCode || '-'}) [${r.date.slice(8)}]`)
+        .join(', ');
+      row.replacementType = recs[recs.length - 1].replaceType;
+    }
+
     function submitLeave() {
       if (!leaveForm.value.guardName) {
         alert('⚠️ กรุณาระบุชื่อพนักงานที่ลา');
@@ -666,57 +721,85 @@ createApp({
       const dayIdx = currentCycleDays.value.findIndex(d => d.dateString === leaveForm.value.date);
       const row = scheduleData.value.find(s => s.no === leaveForm.value.guardNo);
 
-      if (row && dayIdx !== -1) {
-        const prevShift = row.shifts[dayIdx];
-        if (prevShift === 'H') {
-          alert(`⚠️ วันที่ ${leaveForm.value.date} เป็นวันหยุด (H) ของ ${row.name} อยู่แล้ว`);
-          return;
-        }
-
-        row.shifts[dayIdx] = 'L'; // Set to Leave
-        row.replacementName = `${leaveForm.value.replacementName} (${leaveForm.value.replacementCode || '-'})`;
-        row.replacementType = leaveForm.value.replaceType;
-
-        const newRecord = {
-          id: Date.now(),
-          cycleId: currentCycle.value.id,
-          date: leaveForm.value.date,
-          shift: prevShift === 'N' ? 'N' : 'D',
-          guardNo: row.no,
-          guardCode: row.code,
-          guardName: row.name,
-          position: row.position,
-          reason: leaveForm.value.reason,
-          replaceType: leaveForm.value.replaceType,
-          replacementCode: leaveForm.value.replacementCode.trim(),
-          replacementName: leaveForm.value.replacementName.trim(),
-          loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
-          timestamp: new Date().toISOString()
-        };
-
-        leaveRecords.value.unshift(newRecord);
-        saveLeaveRecords();
-        saveSchedule();
-        showLeaveModal.value = false;
-        alert(`✅ บันทึกคนลา & จัดคนแทนสำเร็จ!\nผู้ลา: ${row.name}\nผู้แทน: ${leaveForm.value.replacementName} [${leaveForm.value.replaceType}]`);
+      if (!row) {
+        alert('⚠️ ไม่พบตำแหน่งที่เลือกในตารางเวร');
+        return;
       }
+      if (dayIdx === -1) {
+        alert(`⚠️ วันที่ ${leaveForm.value.date || '(ไม่ได้ระบุ)'} ไม่อยู่ในรอบ ${currentCycle.value.name}\nกรุณาเลือกรอบเงินเดือนด้านบนให้ตรงกับวันที่ลา แล้วบันทึกใหม่`);
+        return;
+      }
+
+      const prevShift = row.shifts[dayIdx];
+      if (prevShift === 'H') {
+        alert(`⚠️ วันที่ ${leaveForm.value.date} เป็นวันหยุด (H) ของ ${row.name} อยู่แล้ว`);
+        return;
+      }
+      if (prevShift === 'L') {
+        alert(`⚠️ วันที่ ${leaveForm.value.date} มีบันทึกลาของ ${row.name} อยู่แล้ว`);
+        return;
+      }
+
+      row.shifts[dayIdx] = 'L'; // Set to Leave
+
+      const newRecord = {
+        id: Date.now(),
+        cycleId: currentCycle.value.id,
+        date: leaveForm.value.date,
+        shift: prevShift === 'N' ? 'N' : 'D',
+        originalShift: prevShift, // เก็บกะเดิมไว้คืนค่าเมื่อยกเลิก (เช่น PH)
+        guardNo: row.no,
+        guardCode: row.code,
+        guardName: row.name,
+        position: row.position,
+        reason: leaveForm.value.reason,
+        replaceType: leaveForm.value.replaceType,
+        replacementCode: leaveForm.value.replacementCode.trim(),
+        replacementName: leaveForm.value.replacementName.trim(),
+        loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
+        timestamp: new Date().toISOString()
+      };
+
+      leaveRecords.value.unshift(newRecord);
+      refreshReplacementLabel(row, currentCycle.value.id);
+      saveLeaveRecords();
+      saveSchedule();
+      showLeaveModal.value = false;
+      alert(`✅ บันทึกคนลา & จัดคนแทนสำเร็จ!\nผู้ลา: ${row.name}\nผู้แทน: ${leaveForm.value.replacementName} [${leaveForm.value.replaceType}]`);
     }
 
     function cancelLeave(record) {
-      if (confirm(`คุณต้องการยกเลิกการลาของ ${record.guardName} วันที่ ${record.date} หรือไม่?`)) {
-        leaveRecords.value = leaveRecords.value.filter(r => r.id !== record.id);
-        saveLeaveRecords();
-        // Restore shift in schedule
+      if (!confirm(`คุณต้องการยกเลิกการลาของ ${record.guardName} วันที่ ${record.date} หรือไม่?`)) return;
+
+      leaveRecords.value = leaveRecords.value.filter(r => r.id !== record.id);
+      saveLeaveRecords();
+      const restoreShift = record.originalShift || record.shift;
+
+      if (record.cycleId === currentCycle.value.id) {
+        // รอบที่เปิดอยู่: คืนกะในตารางที่แสดงอยู่
         const dayIdx = currentCycleDays.value.findIndex(d => d.dateString === record.date);
         const row = scheduleData.value.find(s => s.no === record.guardNo);
         if (row && dayIdx !== -1) {
-          row.shifts[dayIdx] = record.shift;
-          row.replacementName = null;
-          row.replacementType = null;
+          row.shifts[dayIdx] = restoreShift;
+          refreshReplacementLabel(row, record.cycleId);
           saveSchedule();
         }
-        alert('✅ ยกเลิกรายการลาเรียบร้อยแล้ว');
+      } else {
+        // รายการลาของรอบอื่น: แก้ในตารางที่บันทึกไว้ของรอบนั้นโดยตรง
+        const key = `sws_schedule_v3_${record.cycleId}`;
+        const rows = safeParse(key, null);
+        const cycle = payrollCycles.value.find(c => c.id === record.cycleId);
+        if (Array.isArray(rows) && cycle) {
+          const idx = getCycleDays(cycle).findIndex(d => d.dateString === record.date);
+          const row = rows.find(r => r.no === record.guardNo);
+          if (row && idx !== -1) {
+            row.shifts[idx] = restoreShift;
+            refreshReplacementLabel(row, record.cycleId);
+            localStorage.setItem(key, JSON.stringify(rows));
+          }
+        }
       }
+      alert('✅ ยกเลิกรายการลาเรียบร้อยแล้ว');
     }
 
     // =========================================================================
@@ -744,7 +827,35 @@ createApp({
       return days;
     });
 
+    // รอบเงินเดือนที่วันที่หนึ่งๆ สังกัดอยู่ (วันที่ 23 เป็นต้นไป = รอบที่สิ้นสุดเดือนถัดไป)
+    function cycleIdForDate(d) {
+      let y = d.getFullYear();
+      let m = d.getMonth();
+      if (d.getDate() >= 23) {
+        m += 1;
+        if (m > 11) { m = 0; y += 1; }
+      }
+      return `${y}-${String(m + 1).padStart(2, '0')}`;
+    }
+
+    // ตารางเวรของรอบใดก็ได้ (รอบที่เปิดอยู่ใช้ข้อมูลสด, รอบอื่นอ่านจากที่บันทึกไว้ ถ้าไม่มีให้คำนวณจากแพทเทิร์น)
+    function getCycleContext(cycleId) {
+      const cycle = payrollCycles.value.find(c => c.id === cycleId);
+      if (!cycle) return null;
+      const startDayNum = utcDayNum(cycle.startYear, cycle.startMonthNum - 1, 23);
+      if (cycleId === currentCycle.value.id) return { rows: scheduleData.value, startDayNum };
+      const saved = safeParse(`sws_schedule_v3_${cycleId}`, null);
+      if (Array.isArray(saved) && saved.length) {
+        syncRowsWithRoster(saved);
+        return { rows: saved, startDayNum };
+      }
+      return { rows: buildCycleRows(cycle), startDayNum };
+    }
+
     const billingGuardSummaries = computed(() => {
+      const ctxCache = {};
+      const ctxFor = id => (id in ctxCache ? ctxCache[id] : (ctxCache[id] = getCycleContext(id)));
+
       return scheduleData.value.map(guard => {
         let dayShifts = 0;
         let nightShifts = 0;
@@ -753,22 +864,19 @@ createApp({
         let totalHours = 0;
 
         billingDays.value.forEach(bDay => {
-          const sDayIdx = currentCycleDays.value.findIndex(d => d.dateString === bDay.dateString);
-          if (sDayIdx !== -1) {
-            const shift = guard.shifts[sDayIdx];
-            if (shift === 'D') {
-              dayShifts++;
-              totalHours += getPositionWorkHours(guard.position, 'D').hours;
-            } else if (shift === 'N') {
-              nightShifts++;
-              totalHours += getPositionWorkHours(guard.position, 'N').hours;
-            } else if (shift === 'H') {
-              offDays++;
-            } else if (shift === 'PH') {
-              phDays++;
-              totalHours += getPositionWorkHours(guard.position, 'D').hours;
-            }
-          }
+          // ใช้ตารางของรอบที่วันนั้นสังกัดอยู่ ไม่ผูกกับรอบที่เลือกบนหน้าจอ (ช่วงวางบิลข้ามรอบได้)
+          const ctx = ctxFor(cycleIdForDate(bDay.date));
+          if (!ctx) return;
+          const row = ctx.rows.find(r => r.no === guard.no);
+          if (!row) return;
+          const idx = utcDayNum(bDay.date.getFullYear(), bDay.date.getMonth(), bDay.date.getDate()) - ctx.startDayNum;
+          const shift = row.shifts[idx];
+
+          if (shift === 'D') dayShifts++;
+          else if (shift === 'N') nightShifts++;
+          else if (shift === 'H') offDays++;
+          else if (shift === 'PH') phDays++;
+          totalHours += shiftHours(guard.position, shift);
         });
 
         return {
@@ -835,10 +943,29 @@ createApp({
       return guard.shifts.filter(s => s === shiftChar).length;
     }
 
+    // ชั่วโมงรวมในรอบ และชั่วโมงสูงสุดต่อ "สัปดาห์ปฏิทิน (จันทร์-อาทิตย์)" ใช้ตรวจ GDDL ไม่เกิน 60 ชม./สัปดาห์
+    // หมายเหตุ: สัปดาห์ที่คาบเกี่ยวหัว/ท้ายรอบ (เริ่ม 23 / สิ้นสุด 22) จะนับเฉพาะวันที่อยู่ในรอบที่เลือก
+    function weeklyHoursStats(guard) {
+      if (!guard || !guard.shifts) return { total: 0, maxWeek: 0 };
+      const days = currentCycleDays.value;
+      const hrs = guard.shifts.map(s => shiftHours(guard.position, s));
+      const total = hrs.reduce((a, b) => a + b, 0);
+      let maxWeek = 0;
+      let weekSum = 0;
+      hrs.forEach((h, i) => {
+        if (i > 0 && days[i] && days[i].date.getDay() === 1) { // เริ่มสัปดาห์ใหม่ที่วันจันทร์
+          maxWeek = Math.max(maxWeek, weekSum);
+          weekSum = 0;
+        }
+        weekSum += h;
+      });
+      maxWeek = Math.max(maxWeek, weekSum);
+      return { total, maxWeek };
+    }
+
     function checkGDDL(guard) {
       if (!guard) return true;
-      const totalWork = countShifts(guard, 'D') + countShifts(guard, 'N') + countShifts(guard, 'PH');
-      return totalWork <= 22;
+      return weeklyHoursStats(guard).maxWeek <= GDDL_MAX_WEEK_HOURS;
     }
 
     function isWeekend(dateObj) {
@@ -868,6 +995,12 @@ createApp({
       return getPositionWorkHours(selectedGuard.value.position, 'D').text;
     });
 
+    const selectedGuardStats = computed(() => {
+      if (!selectedGuard.value) return null;
+      const st = weeklyHoursStats(selectedGuard.value);
+      return { total: st.total, maxWeek: st.maxWeek, ok: st.maxWeek <= GDDL_MAX_WEEK_HOURS };
+    });
+
     function selectTab(tab) {
       if (tab === 'billing' && !isAdmin.value) {
         alert('🔒 หัวข้อ "วางบิล (Billing Summary)" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น ตามข้อกำหนดข้อ 7');
@@ -886,6 +1019,10 @@ createApp({
 
     watch(selectedCycleIndex, () => {
       initSchedule();
+      // ตั้งช่วงวางบิลเริ่มต้นให้ตรงกับรอบที่เลือก (ผู้ใช้ยังแก้เองได้)
+      const c = currentCycle.value;
+      billingStartDate.value = fmtDate(new Date(c.startYear, c.startMonthNum - 1, 23));
+      billingEndDate.value = fmtDate(new Date(c.endYear, c.endMonthNum - 1, 22));
     });
 
     return {
@@ -928,6 +1065,9 @@ createApp({
       editShift,
       countShifts,
       checkGDDL,
+      weeklyHoursStats,
+      gddlMaxWeekHours: GDDL_MAX_WEEK_HOURS,
+      selectedGuardStats,
       getDailyContract,
       getDailyActual,
       getDailySpareGap,
