@@ -20,6 +20,31 @@ function safeParse(key, fallback) {
 // มาตรฐาน GDDL 5/2: ชั่วโมงทำงานรวมไม่เกิน 60 ชม. ต่อสัปดาห์ (จันทร์-อาทิตย์)
 const GDDL_MAX_WEEK_HOURS = 60;
 
+// =========================================================================
+// FIREBASE (ระบบกลาง) — เปิดใช้เมื่อโหลด Firebase SDK + firebase-config.js สำเร็จ
+// ถ้าไม่มี/โหลดไม่ได้ ระบบจะกลับไปทำงานแบบเดิม คือเก็บใน localStorage ของเครื่องนั้น
+// =========================================================================
+const FB_WINDOW = typeof window !== 'undefined' ? window : {};
+let CLOUD_ENABLED = !!(FB_WINDOW.firebase && FB_WINDOW.FIREBASE_CONFIG && FB_WINDOW.FIREBASE_CONFIG.apiKey);
+let fbAuth = null;
+let fbDb = null;
+if (CLOUD_ENABLED) {
+  try {
+    FB_WINDOW.firebase.initializeApp(FB_WINDOW.FIREBASE_CONFIG);
+    fbAuth = FB_WINDOW.firebase.auth();
+    fbDb = FB_WINDOW.firebase.firestore();
+  } catch (e) {
+    console.error('เริ่มต้น Firebase ไม่สำเร็จ ใช้โหมดเครื่องนี้แทน', e);
+    CLOUD_ENABLED = false;
+  }
+}
+// Firebase Auth ต้องใช้อีเมล: แปลง username -> username@sws.local (ไม่ใช่อีเมลจริง)
+const EMAIL_DOMAIN = 'sws.local';
+const USERNAME_RE = /^[a-z0-9._-]{3,30}$/;
+const usernameToEmail = u => `${String(u).trim().toLowerCase()}@${EMAIL_DOMAIN}`;
+// แปลงเป็น object ธรรมดา (ตัด Vue proxy / undefined) ก่อนส่งเข้า Firestore
+const plain = x => JSON.parse(JSON.stringify(x));
+
 createApp({
   setup() {
     // Current Active Tab
@@ -60,8 +85,28 @@ createApp({
     ];
 
     const userAccounts = ref([]);
+    const cloudStatus = ref(CLOUD_ENABLED ? 'connecting' : 'local'); // local | connecting | online | error
+    const authReady = ref(!CLOUD_ENABLED);
+    let suppressAuthEvents = false;
+    let unsubUsers = null;
 
     function initUsers() {
+      if (CLOUD_ENABLED) {
+        // โหมดระบบกลาง: ไม่มีบัญชี/รหัสผ่านฝังในโค้ด ล็อกอินผ่าน Firebase Authentication
+        userAccounts.value = [];
+        fbAuth.onAuthStateChanged(async fbUser => {
+          if (suppressAuthEvents) return;
+          if (fbUser) {
+            await establishSession(fbUser, false);
+          } else {
+            currentUser.value = null;
+            refreshUsersSubscription();
+          }
+          authReady.value = true;
+        });
+        return;
+      }
+
       const saved = safeParse('sws_user_accounts', null);
       if (Array.isArray(saved) && saved.length) {
         userAccounts.value = saved;
@@ -92,7 +137,79 @@ createApp({
     const isSupervisor = computed(() => currentUser.value && (currentUser.value.role === 'SUPERVISOR' || currentUser.value.role === 'ADMIN'));
     const isGuardViewer = computed(() => !currentUser.value);
 
+    // Admin เท่านั้นที่ฟังรายชื่อบัญชีทั้งหมดได้ (Rules บังคับอีกชั้น)
+    function refreshUsersSubscription() {
+      if (!CLOUD_ENABLED) return;
+      if (unsubUsers) { unsubUsers(); unsubUsers = null; }
+      if (isAdmin.value) {
+        unsubUsers = fbDb.collection('users').onSnapshot(snap => {
+          userAccounts.value = snap.docs
+            .map(d => ({ uid: d.id, ...d.data() }))
+            .sort((x, y) => String(x.username).localeCompare(String(y.username)));
+        }, err => console.warn('อ่านรายชื่อบัญชีไม่ได้', err));
+      } else {
+        userAccounts.value = [];
+      }
+    }
+
+    // ตรวจสิทธิ์จากเอกสาร users/{uid} ใน Firestore แล้วตั้ง currentUser (ใช้ทั้งตอนล็อกอินและตอนเปิดเว็บซ้ำ)
+    async function establishSession(fbUser, interactive) {
+      let profile = null;
+      try {
+        const snap = await fbDb.collection('users').doc(fbUser.uid).get();
+        profile = snap.exists ? { uid: fbUser.uid, ...snap.data() } : null;
+      } catch (e) {
+        console.warn('อ่านข้อมูลสิทธิ์ไม่ได้', e);
+      }
+      let problem = null;
+      if (!profile) problem = '❌ บัญชีนี้ยังไม่มีข้อมูลสิทธิ์ในระบบ กรุณาติดต่อ Site Manager';
+      else if (profile.status === 'PENDING') problem = '⏳ บัญชี Supervisor นี้กำลังรอการอนุมัติจาก Admin (Site Manager)\nกรุณาติดต่อ Site Manager เพื่อเปิดใช้งานระบบ';
+      else if (profile.status !== 'ACTIVE') problem = '🚫 บัญชีนี้ถูกระงับสิทธิ์การใช้งาน กรุณาติดต่อ Site Manager';
+
+      if (problem) {
+        try { await fbAuth.signOut(); } catch (e) { /* ignore */ }
+        currentUser.value = null;
+        refreshUsersSubscription();
+        if (interactive) alert(problem);
+        return false;
+      }
+      currentUser.value = profile;
+      refreshUsersSubscription();
+      return true;
+    }
+
     function handleLogin() {
+      return CLOUD_ENABLED ? handleLoginCloud() : handleLoginLocal();
+    }
+
+    async function handleLoginCloud() {
+      const username = loginForm.value.username.trim().toLowerCase();
+      const password = loginForm.value.password;
+      if (!username || !password) {
+        alert('⚠️ กรุณากรอกชื่อผู้ใช้และรหัสผ่าน');
+        return;
+      }
+      suppressAuthEvents = true;
+      try {
+        const cred = await fbAuth.signInWithEmailAndPassword(usernameToEmail(username), password);
+        const ok = await establishSession(cred.user, true);
+        if (ok) {
+          showLoginModal.value = false;
+          loginForm.value = { username: '', password: '' };
+          alert(`✅ ยินดีต้อนรับคุณ ${currentUser.value.name} เข้าสู่ระบบ (${currentUser.value.role === 'ADMIN' ? 'Site Manager / Admin' : 'Supervisor'})`);
+        }
+      } catch (e) {
+        const code = e && e.code;
+        if (code === 'auth/too-many-requests') alert('🚫 ลองผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่');
+        else if (code === 'auth/network-request-failed') alert('📡 เชื่อมต่ออินเทอร์เน็ตไม่ได้ กรุณาลองใหม่');
+        else alert('❌ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      } finally {
+        suppressAuthEvents = false;
+        authReady.value = true;
+      }
+    }
+
+    function handleLoginLocal() {
       const u = userAccounts.value.find(
         acc => acc.username.toLowerCase() === loginForm.value.username.trim().toLowerCase() && 
                acc.password === loginForm.value.password.trim()
@@ -121,6 +238,54 @@ createApp({
     }
 
     function handleRegister() {
+      return CLOUD_ENABLED ? handleRegisterCloud() : handleRegisterLocal();
+    }
+
+    async function handleRegisterCloud() {
+      const f = registerForm.value;
+      const username = f.username.trim().toLowerCase();
+      if (!username || !f.password || !f.code.trim() || !f.name.trim()) {
+        alert('⚠️ กรุณากรอกข้อมูลให้ครบทุกช่อง');
+        return;
+      }
+      if (!USERNAME_RE.test(username)) {
+        alert('⚠️ ชื่อผู้ใช้ต้องเป็นตัวอักษรภาษาอังกฤษพิมพ์เล็ก ตัวเลข จุด ขีดกลาง หรือขีดล่าง ความยาว 3-30 ตัว (เช่น sup_somchai)');
+        return;
+      }
+      if (f.password.length < 6) {
+        alert('⚠️ รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร');
+        return;
+      }
+      suppressAuthEvents = true;
+      try {
+        const cred = await fbAuth.createUserWithEmailAndPassword(usernameToEmail(username), f.password);
+        await fbDb.collection('users').doc(cred.user.uid).set({
+          username,
+          name: f.name.trim(),
+          code: f.code.trim(),
+          role: 'SUPERVISOR',
+          position: 'Supervisor',
+          phone: (f.phone || '').trim(),
+          status: 'PENDING', // ต้องให้ Admin อนุมัติ
+          registeredAt: new Date().toISOString()
+        });
+        await fbAuth.signOut();
+        showRegisterModal.value = false;
+        registerForm.value = { username: '', password: '', code: '', name: '', role: 'SUPERVISOR', phone: '' };
+        alert('📝 ลงทะเบียน Supervisor สำเร็จเรียบร้อย!\nสถานะปัจจุบัน: "รอการอนุมัติ (Pending)"\nกรุณาแจ้ง Site Manager (Admin) เพื่อทำการอนุมัติบัญชีของคุณ');
+      } catch (e) {
+        const code = e && e.code;
+        if (code === 'auth/email-already-in-use') alert('❌ ชื่อผู้ใช้นี้มีในระบบแล้ว กรุณาใช้ชื่ออื่น');
+        else if (code === 'auth/weak-password') alert('⚠️ รหัสผ่านง่ายเกินไป (ต้องยาวอย่างน้อย 6 ตัวอักษร)');
+        else if (code === 'auth/network-request-failed') alert('📡 เชื่อมต่ออินเทอร์เน็ตไม่ได้ กรุณาลองใหม่');
+        else alert('⚠️ ลงทะเบียนไม่สำเร็จ กรุณาแจ้ง Site Manager\n(' + ((e && (e.code || e.message)) || 'unknown') + ')');
+        try { await fbAuth.signOut(); } catch (e2) { /* ignore */ }
+      } finally {
+        suppressAuthEvents = false;
+      }
+    }
+
+    function handleRegisterLocal() {
       if (!registerForm.value.username || !registerForm.value.password || !registerForm.value.code || !registerForm.value.name) {
         alert('⚠️ กรุณากรอกข้อมูลให้ครบทุกช่อง');
         return;
@@ -154,6 +319,12 @@ createApp({
     }
 
     function approveSupervisor(user) {
+      if (CLOUD_ENABLED) {
+        fbDb.collection('users').doc(user.uid).update({ status: 'ACTIVE', approvedAt: new Date().toISOString() })
+          .then(() => alert(`✅ อนุมัติสิทธิ์ Supervisor ให้คุณ ${user.name} สำเร็จ!`))
+          .catch(cloudWriteError);
+        return;
+      }
       user.status = 'ACTIVE';
       user.approvedAt = new Date().toISOString();
       saveUsers();
@@ -161,21 +332,36 @@ createApp({
     }
 
     function suspendSupervisor(user) {
-      user.status = user.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+      const next = user.status === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
+      if (CLOUD_ENABLED) {
+        fbDb.collection('users').doc(user.uid).update({ status: next }).catch(cloudWriteError);
+        return;
+      }
+      user.status = next;
       saveUsers();
     }
 
     function deleteSupervisor(user) {
-      if (confirm(`คุณต้องการลบบัญชีของ ${user.name} หรือไม่?`)) {
-        userAccounts.value = userAccounts.value.filter(u => u.username !== user.username);
-        saveUsers();
+      if (!confirm(`คุณต้องการลบบัญชีของ ${user.name} หรือไม่?`)) return;
+      if (CLOUD_ENABLED) {
+        // ลบเฉพาะข้อมูลสิทธิ์ (users/{uid}) ทำให้ล็อกอินไม่ได้ ส่วนบัญชีใน Authentication ลบได้ที่ Firebase Console
+        fbDb.collection('users').doc(user.uid).delete()
+          .then(() => alert('✅ ลบสิทธิ์ผู้ใช้แล้ว (ถ้าต้องการลบบัญชีล็อกอินจริง ให้ลบใน Firebase Console → Authentication)'))
+          .catch(cloudWriteError);
+        return;
       }
+      userAccounts.value = userAccounts.value.filter(u => u.username !== user.username);
+      saveUsers();
     }
 
     function logout() {
+      if (CLOUD_ENABLED) {
+        fbAuth.signOut().catch(e => console.warn('signOut ไม่สำเร็จ', e));
+      }
       currentUser.value = null;
       localStorage.removeItem('sws_active_session');
       currentTab.value = 'schedule';
+      refreshUsersSubscription();
       alert('👋 ออกจากระบบเรียบร้อยแล้ว (กลับสู่โหมด รปภ. ทั่วไป)');
     }
 
@@ -220,6 +406,10 @@ createApp({
     const newHoliday = ref({ date: '', name: '' });
 
     function initHolidays() {
+      if (CLOUD_ENABLED) {
+        publicHolidays.value = plain(defaultHolidays);
+        return;
+      }
       const saved = safeParse('sws_public_holidays', null);
       if (Array.isArray(saved)) {
         publicHolidays.value = saved;
@@ -230,6 +420,10 @@ createApp({
     }
 
     function saveHolidays() {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('settings').doc('holidays').set({ list: plain(publicHolidays.value) }));
+        return;
+      }
       localStorage.setItem('sws_public_holidays', JSON.stringify(publicHolidays.value));
     }
 
@@ -315,6 +509,11 @@ createApp({
     const showStaffModal = ref(false);
 
     function initPermanentStaff() {
+      if (CLOUD_ENABLED) {
+        // เริ่มจากค่าเริ่มต้นก่อน แล้วระบบกลางจะส่งข้อมูลล่าสุดมาทับ (ดู startCloudListeners)
+        permanentStaff.value = plain(defaultRoster);
+        return;
+      }
       const saved = safeParse('sws_permanent_staff', null);
       if (Array.isArray(saved) && saved.length) {
         permanentStaff.value = saved;
@@ -339,6 +538,10 @@ createApp({
     }
 
     function savePermanentStaff() {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('roster').doc('main').set({ staff: plain(permanentStaff.value) }));
+        return;
+      }
       localStorage.setItem('sws_permanent_staff', JSON.stringify(permanentStaff.value));
     }
 
@@ -392,7 +595,8 @@ createApp({
 
     function syncStaffToSchedule() {
       syncRowsWithRoster(scheduleData.value);
-      saveSchedule();
+      // โหมดระบบกลาง: ชื่อ/ตำแหน่งอ้างอิงจากทะเบียน (roster) ทุกครั้งที่โหลด จึงไม่ต้องเขียนตารางซ้ำ
+      if (!CLOUD_ENABLED) saveSchedule();
     }
 
     // =========================================================================
@@ -615,6 +819,12 @@ createApp({
 
     function initSchedule() {
       const cycle = currentCycle.value;
+      if (CLOUD_ENABLED) {
+        // แสดงค่าจากแพทเทิร์นทันที แล้วนำแถวที่ถูกแก้ไขในระบบกลางมาทับแบบเรียลไทม์
+        scheduleData.value = buildCycleRows(cycle);
+        subscribeCycleRows(cycle);
+        return;
+      }
       const saved = safeParse(`sws_schedule_v3_${cycle.id}`, null);
       if (Array.isArray(saved) && saved.length) {
         // รอบที่เคยบันทึกไว้: ซิงก์ชื่อ/ตำแหน่งให้ตรงกับทะเบียนล่าสุด (เผื่อแก้รายชื่อตอนอยู่รอบอื่น)
@@ -626,19 +836,33 @@ createApp({
       saveSchedule();
     }
 
-    function saveSchedule() {
+    function saveSchedule(onlyRow) {
+      if (CLOUD_ENABLED) {
+        cloudSaveRows(currentCycle.value.id, onlyRow ? [onlyRow] : scheduleData.value);
+        return;
+      }
       const cycle = currentCycle.value;
       const storageKey = `sws_schedule_v3_${cycle.id}`;
       localStorage.setItem(storageKey, JSON.stringify(scheduleData.value));
     }
 
-    function resetScheduleToMaster() {
-      if (confirm('⚠️ ต้องการรีเซ็ตตารางเวรของรอบนี้กลับสู่ Master Draft ดั้งเดิมหรือไม่?\n(ข้อมูลการสลับกะที่เคยแก้ไขด้วยมือจะถูกแทนที่)')) {
-        const cycle = currentCycle.value;
-        localStorage.removeItem(`sws_schedule_v3_${cycle.id}`);
-        initSchedule();
-        alert('✅ รีเซ็ตตารางเวรกลับสู่ค่าเริ่มต้นเรียบร้อยแล้ว');
+    async function resetScheduleToMaster() {
+      if (!confirm('⚠️ ต้องการรีเซ็ตตารางเวรของรอบนี้กลับสู่ Master Draft ดั้งเดิมหรือไม่?\n(ข้อมูลการสลับกะที่เคยแก้ไขด้วยมือจะถูกแทนที่)')) return;
+      const cycle = currentCycle.value;
+      if (CLOUD_ENABLED) {
+        try {
+          const snap = await fbDb.collection('schedules').doc(cycle.id).collection('rows').get();
+          await commitOps(snap.docs.map(d => batch => batch.delete(d.ref)));
+          initSchedule();
+          alert('✅ รีเซ็ตตารางเวรกลับสู่ค่าเริ่มต้นเรียบร้อยแล้ว');
+        } catch (e) {
+          cloudWriteError(e);
+        }
+        return;
       }
+      localStorage.removeItem(`sws_schedule_v3_${cycle.id}`);
+      initSchedule();
+      alert('✅ รีเซ็ตตารางเวรกลับสู่ค่าเริ่มต้นเรียบร้อยแล้ว');
     }
 
     // =========================================================================
@@ -658,12 +882,32 @@ createApp({
     });
 
     function initLeaveRecords() {
+      if (CLOUD_ENABLED) {
+        leaveRecords.value = [];
+        return;
+      }
       const saved = safeParse('sws_leave_records', []);
       leaveRecords.value = Array.isArray(saved) ? saved : [];
     }
 
     function saveLeaveRecords() {
       localStorage.setItem('sws_leave_records', JSON.stringify(leaveRecords.value));
+    }
+
+    function persistLeaveAdd(record) {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('leaveRecords').doc(String(record.id)).set(plain(record)));
+      } else {
+        saveLeaveRecords();
+      }
+    }
+
+    function persistLeaveRemove(record) {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('leaveRecords').doc(String(record.id)).delete());
+      } else {
+        saveLeaveRecords();
+      }
     }
 
     function openLeaveModal(guardNo = null) {
@@ -743,7 +987,7 @@ createApp({
       row.shifts[dayIdx] = 'L'; // Set to Leave
 
       const newRecord = {
-        id: Date.now(),
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, // ไม่ซ้ำแม้บันทึกพร้อมกันในมิลลิวินาทีเดียว
         cycleId: currentCycle.value.id,
         date: leaveForm.value.date,
         shift: prevShift === 'N' ? 'N' : 'D',
@@ -762,8 +1006,8 @@ createApp({
 
       leaveRecords.value.unshift(newRecord);
       refreshReplacementLabel(row, currentCycle.value.id);
-      saveLeaveRecords();
-      saveSchedule();
+      persistLeaveAdd(newRecord);
+      saveSchedule(row);
       showLeaveModal.value = false;
       alert(`✅ บันทึกคนลา & จัดคนแทนสำเร็จ!\nผู้ลา: ${row.name}\nผู้แทน: ${leaveForm.value.replacementName} [${leaveForm.value.replaceType}]`);
     }
@@ -772,7 +1016,7 @@ createApp({
       if (!confirm(`คุณต้องการยกเลิกการลาของ ${record.guardName} วันที่ ${record.date} หรือไม่?`)) return;
 
       leaveRecords.value = leaveRecords.value.filter(r => r.id !== record.id);
-      saveLeaveRecords();
+      persistLeaveRemove(record);
       const restoreShift = record.originalShift || record.shift;
 
       if (record.cycleId === currentCycle.value.id) {
@@ -782,20 +1026,28 @@ createApp({
         if (row && dayIdx !== -1) {
           row.shifts[dayIdx] = restoreShift;
           refreshReplacementLabel(row, record.cycleId);
-          saveSchedule();
+          saveSchedule(row);
         }
       } else {
         // รายการลาของรอบอื่น: แก้ในตารางที่บันทึกไว้ของรอบนั้นโดยตรง
-        const key = `sws_schedule_v3_${record.cycleId}`;
-        const rows = safeParse(key, null);
         const cycle = payrollCycles.value.find(c => c.id === record.cycleId);
-        if (Array.isArray(rows) && cycle) {
-          const idx = getCycleDays(cycle).findIndex(d => d.dateString === record.date);
-          const row = rows.find(r => r.no === record.guardNo);
-          if (row && idx !== -1) {
+        if (cycle) {
+          const patch = row => {
+            const idx = getCycleDays(cycle).findIndex(d => d.dateString === record.date);
+            if (idx === -1) return false;
             row.shifts[idx] = restoreShift;
             refreshReplacementLabel(row, record.cycleId);
-            localStorage.setItem(key, JSON.stringify(rows));
+            return true;
+          };
+          if (CLOUD_ENABLED) {
+            cloudPatchRow(record.cycleId, record.guardNo, patch);
+          } else {
+            const key = `sws_schedule_v3_${record.cycleId}`;
+            const rows = safeParse(key, null);
+            if (Array.isArray(rows)) {
+              const row = rows.find(r => r.no === record.guardNo);
+              if (row && patch(row)) localStorage.setItem(key, JSON.stringify(rows));
+            }
           }
         }
       }
@@ -844,6 +1096,11 @@ createApp({
       if (!cycle) return null;
       const startDayNum = utcDayNum(cycle.startYear, cycle.startMonthNum - 1, 23);
       if (cycleId === currentCycle.value.id) return { rows: scheduleData.value, startDayNum };
+      if (CLOUD_ENABLED) {
+        // รอบอื่น: ใช้ข้อมูลที่โหลดจากระบบกลางไว้แล้ว (ดู loadBillingCycles) ถ้ายังไม่โหลดใช้ค่าจากแพทเทิร์นไปก่อน
+        const cached = cloudCycleCache.value[cycleId];
+        return { rows: cached || buildCycleRows(cycle), startDayNum };
+      }
       const saved = safeParse(`sws_schedule_v3_${cycleId}`, null);
       if (Array.isArray(saved) && saved.length) {
         syncRowsWithRoster(saved);
@@ -935,7 +1192,7 @@ createApp({
       const choices = ['D', 'N', 'H', 'PH', 'L'];
       const nextIdx = (choices.indexOf(current) + 1) % choices.length;
       guard.shifts[sIdx] = choices[nextIdx];
-      saveSchedule();
+      saveSchedule(guard);
     }
 
     function countShifts(guard, shiftChar) {
@@ -1006,7 +1263,194 @@ createApp({
         alert('🔒 หัวข้อ "วางบิล (Billing Summary)" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น ตามข้อกำหนดข้อ 7');
         return;
       }
+      if (tab === 'billing') {
+        cloudCycleCache.value = {}; // เข้าหน้าวางบิลทุกครั้ง โหลดตารางรอบอื่นจากระบบกลางใหม่
+        loadBillingCycles();
+      }
       currentTab.value = tab;
+    }
+
+    // =========================================================================
+    // CLOUD SYNC (Firestore) — โครงสร้างข้อมูล:
+    //   users/{uid}                    บัญชี + สิทธิ์ (role/status)
+    //   roster/main                    { staff: [...] }  ทะเบียน รปภ.ประจำ 39 ตำแหน่ง
+    //   settings/holidays              { list: [...] }   วันนักขัตฤกษ์
+    //   leaveRecords/{id}              บันทึกคนลา/คนแทน
+    //   schedules/{cycleId}/rows/{no}  แถวตารางเวรที่ถูกแก้ไข (แถวที่ไม่เคยแก้ใช้ค่าจากแพทเทิร์น)
+    // =========================================================================
+    const cloudCycleCache = ref({});
+    let unsubRows = null;
+    let rowsCycleId = null;
+
+    function cloudWriteError(e) {
+      console.warn('เขียน Firestore ไม่สำเร็จ', e);
+      if (e && e.code === 'permission-denied') {
+        alert('⛔ ไม่มีสิทธิ์บันทึกข้อมูล (ยังไม่ได้เข้าสู่ระบบ / บัญชีถูกระงับ / ยังไม่ได้รับอนุมัติ)\nข้อมูลบนหน้าจอจะถูกคืนค่าตามระบบกลาง');
+      } else {
+        alert('⚠️ บันทึกข้อมูลขึ้นระบบกลางไม่สำเร็จ กรุณาตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
+      }
+    }
+
+    function cloudWrite(promise) {
+      Promise.resolve(promise).catch(cloudWriteError);
+    }
+
+    // แบ่งเขียนทีละ 20 รายการ (ลดความเสี่ยงชน limit ของ Rules ที่ใช้ get() ตรวจสิทธิ์)
+    function commitOps(ops) {
+      const CHUNK = 20;
+      const jobs = [];
+      for (let i = 0; i < ops.length; i += CHUNK) {
+        const batch = fbDb.batch();
+        ops.slice(i, i + CHUNK).forEach(fn => fn(batch));
+        jobs.push(batch.commit());
+      }
+      return Promise.all(jobs);
+    }
+
+    function cloudSaveRows(cycleId, rows) {
+      if (!currentUser.value) return; // รปภ.ทั่วไปแก้ไม่ได้ (Rules บังคับอีกชั้น)
+      const col = fbDb.collection('schedules').doc(cycleId).collection('rows');
+      cloudWrite(commitOps(rows.map(r => batch => batch.set(col.doc(String(r.no)), plain(r)))));
+    }
+
+    // แก้แถวของรอบใดก็ได้ในระบบกลาง (ใช้ตอนยกเลิกการลาของรอบที่ไม่ได้เปิดอยู่)
+    async function cloudPatchRow(cycleId, no, mutate) {
+      const cycle = payrollCycles.value.find(c => c.id === cycleId);
+      if (!cycle) return;
+      try {
+        const ref = fbDb.collection('schedules').doc(cycleId).collection('rows').doc(String(no));
+        const snap = await ref.get();
+        const row = snap.exists ? snap.data() : buildCycleRows(cycle).find(r => r.no === no);
+        if (!row) return;
+        if (mutate(row)) await ref.set(plain(row));
+      } catch (e) {
+        cloudWriteError(e);
+      }
+    }
+
+    // นำแถวที่แก้ไขในระบบกลางมาทับแถวจากแพทเทิร์น แล้วซิงก์ชื่อ/ตำแหน่งตามทะเบียนล่าสุด
+    function overlayRows(base, cloudRows, cycle) {
+      const len = getCycleDays(cycle).length;
+      cloudRows.forEach(cr => {
+        if (!cr || !Array.isArray(cr.shifts) || cr.shifts.length !== len) return;
+        const i = base.findIndex(r => r.no === cr.no);
+        if (i !== -1) base[i] = cr;
+      });
+      syncRowsWithRoster(base);
+      return base;
+    }
+
+    function subscribeCycleRows(cycle) {
+      if (unsubRows) { unsubRows(); unsubRows = null; }
+      rowsCycleId = cycle.id;
+      unsubRows = fbDb.collection('schedules').doc(cycle.id).collection('rows').onSnapshot(snap => {
+        if (rowsCycleId !== cycle.id || snap.metadata.hasPendingWrites) return;
+        scheduleData.value = overlayRows(buildCycleRows(cycle), snap.docs.map(d => d.data()), cycle);
+        cloudStatus.value = 'online';
+      }, err => {
+        console.warn('อ่านตารางเวรจากระบบกลางไม่ได้', err);
+        cloudStatus.value = 'error';
+      });
+    }
+
+    // โหลดตารางของรอบอื่นที่ช่วงวางบิลคาบเกี่ยว (รอบที่เปิดอยู่ใช้ข้อมูลสดอยู่แล้ว)
+    async function loadBillingCycles() {
+      if (!CLOUD_ENABLED) return;
+      const ids = new Set();
+      billingDays.value.forEach(d => ids.add(cycleIdForDate(d.date)));
+      for (const id of ids) {
+        if (id === currentCycle.value.id || cloudCycleCache.value[id]) continue;
+        const cycle = payrollCycles.value.find(c => c.id === id);
+        if (!cycle) continue;
+        try {
+          const snap = await fbDb.collection('schedules').doc(id).collection('rows').get();
+          cloudCycleCache.value = {
+            ...cloudCycleCache.value,
+            [id]: overlayRows(buildCycleRows(cycle), snap.docs.map(d => d.data()), cycle)
+          };
+        } catch (e) {
+          console.warn('โหลดตารางรอบ ' + id + ' ไม่ได้', e);
+        }
+      }
+    }
+
+    function startCloudListeners() {
+      const onErr = what => err => {
+        console.warn('อ่านข้อมูลจากระบบกลางไม่ได้: ' + what, err);
+        cloudStatus.value = 'error';
+      };
+
+      fbDb.collection('roster').doc('main').onSnapshot(snap => {
+        if (snap.metadata.hasPendingWrites) return;
+        const staff = snap.exists ? snap.data().staff : null;
+        if (Array.isArray(staff) && staff.length) permanentStaff.value = staff;
+        syncRowsWithRoster(scheduleData.value);
+        cloudStatus.value = 'online';
+      }, onErr('roster'));
+
+      fbDb.collection('settings').doc('holidays').onSnapshot(snap => {
+        if (snap.metadata.hasPendingWrites) return;
+        const list = snap.exists ? snap.data().list : null;
+        if (Array.isArray(list)) publicHolidays.value = list;
+        cloudStatus.value = 'online';
+      }, onErr('holidays'));
+
+      fbDb.collection('leaveRecords').onSnapshot(snap => {
+        if (snap.metadata.hasPendingWrites) return;
+        leaveRecords.value = snap.docs
+          .map(d => d.data())
+          .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+        cloudStatus.value = 'online';
+      }, onErr('leaveRecords'));
+    }
+
+    // Admin: ย้ายข้อมูลที่เคยแก้ไว้ใน localStorage ของเครื่องนี้ ขึ้นระบบกลาง (ทำครั้งเดียว)
+    async function migrateLocalToCloud() {
+      if (!CLOUD_ENABLED || !isAdmin.value) return;
+      if (!confirm('ย้ายข้อมูลที่บันทึกไว้ในเครื่องนี้ขึ้นระบบกลางหรือไม่?\n\n- ทะเบียน รปภ.ประจำ และวันนักขัตฤกษ์ จะทับข้อมูลในระบบกลาง\n- เฉพาะแถวตารางเวรที่เคยแก้ไข/มีบันทึกลา จะถูกอัปโหลด\n- บัญชีผู้ใช้เดิมในเครื่อง (รหัสผ่านแบบเก่า) จะไม่ถูกย้าย\n- ข้อมูลในเครื่องยังอยู่เหมือนเดิม')) return;
+
+      const sum = { staff: 0, holidays: 0, leaves: 0, rows: 0, cycles: 0 };
+      try {
+        const staff = safeParse('sws_permanent_staff', null);
+        if (Array.isArray(staff) && staff.length) {
+          await fbDb.collection('roster').doc('main').set({ staff: plain(staff) });
+          sum.staff = staff.length;
+        }
+        const hol = safeParse('sws_public_holidays', null);
+        if (Array.isArray(hol)) {
+          await fbDb.collection('settings').doc('holidays').set({ list: plain(hol) });
+          sum.holidays = hol.length;
+        }
+        const leaves = safeParse('sws_leave_records', []);
+        if (Array.isArray(leaves) && leaves.length) {
+          await commitOps(leaves.map(r => batch => batch.set(fbDb.collection('leaveRecords').doc(String(r.id)), plain(r))));
+          sum.leaves = leaves.length;
+        }
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.indexOf('sws_schedule_v3_') === 0) keys.push(k);
+        }
+        for (const key of keys) {
+          const cycleId = key.replace('sws_schedule_v3_', '');
+          const cycle = payrollCycles.value.find(c => c.id === cycleId);
+          const rows = safeParse(key, null);
+          if (!cycle || !Array.isArray(rows)) continue;
+          const base = buildCycleRows(cycle);
+          const changed = rows.filter(r => {
+            const b = base.find(x => x.no === r.no);
+            return b && Array.isArray(r.shifts) && (JSON.stringify(b.shifts) !== JSON.stringify(r.shifts) || r.replacementName);
+          });
+          if (!changed.length) continue;
+          const col = fbDb.collection('schedules').doc(cycleId).collection('rows');
+          await commitOps(changed.map(r => batch => batch.set(col.doc(String(r.no)), plain(r))));
+          sum.rows += changed.length;
+          sum.cycles++;
+        }
+        alert(`✅ ย้ายข้อมูลขึ้นระบบกลางสำเร็จ\n- รายชื่อ รปภ.ประจำ: ${sum.staff} ตำแหน่ง\n- วันนักขัตฤกษ์: ${sum.holidays} วัน\n- บันทึกคนลา: ${sum.leaves} รายการ\n- แถวตารางเวรที่แก้ไข: ${sum.rows} แถว (${sum.cycles} รอบ)`);
+      } catch (e) {
+        cloudWriteError(e);
+      }
     }
 
     onMounted(() => {
@@ -1015,6 +1459,7 @@ createApp({
       initPermanentStaff();
       initLeaveRecords();
       initSchedule();
+      if (CLOUD_ENABLED) startCloudListeners();
     });
 
     watch(selectedCycleIndex, () => {
@@ -1023,6 +1468,10 @@ createApp({
       const c = currentCycle.value;
       billingStartDate.value = fmtDate(new Date(c.startYear, c.startMonthNum - 1, 23));
       billingEndDate.value = fmtDate(new Date(c.endYear, c.endMonthNum - 1, 22));
+    });
+
+    watch([billingStartDate, billingEndDate], () => {
+      loadBillingCycles();
     });
 
     return {
@@ -1064,6 +1513,10 @@ createApp({
       getShiftStyle,
       editShift,
       countShifts,
+      cloudEnabled: CLOUD_ENABLED,
+      cloudStatus,
+      authReady,
+      migrateLocalToCloud,
       checkGDDL,
       weeklyHoursStats,
       gddlMaxWeekHours: GDDL_MAX_WEEK_HOURS,

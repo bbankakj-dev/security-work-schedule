@@ -28,13 +28,15 @@ service cloud.firestore {
       // สมัครใหม่ได้เฉพาะ SUPERVISOR สถานะ PENDING (กันสมัครตัวเองเป็น ADMIN / ACTIVE)
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.role == 'SUPERVISOR'
-        && request.resource.data.status == 'PENDING';
+        && request.resource.data.status == 'PENDING'
+        && request.resource.data.keys().hasOnly(
+             ['username', 'name', 'code', 'role', 'position', 'phone', 'status', 'registeredAt']);
       // อนุมัติ/ระงับ/ลบ ได้เฉพาะ Admin
       allow update, delete: if isAdmin();
     }
 
     // ---- ข้อมูลที่ รปภ. ทั่วไปดูได้ (อ่านสาธารณะ) / แก้ไขได้เฉพาะ Supervisor-Admin ที่อนุมัติแล้ว ----
-    // หมายเหตุ: ชื่อ collection ด้านล่างเป็นชื่อสมมติ ปรับให้ตรงกับโค้ดตอนเชื่อม Firestore จริง
+    // ชื่อ collection ตรงกับที่ app.js ใช้: schedules/{cycle}/rows/{no}, leaveRecords/{id}, roster/main, settings/holidays
     match /schedules/{doc=**}    { allow read: if true; allow write: if isActiveStaff(); }
     match /leaveRecords/{doc=**} { allow read: if true; allow write: if isActiveStaff(); }
     match /roster/{doc=**}       { allow read: if true; allow write: if isActiveStaff(); }
