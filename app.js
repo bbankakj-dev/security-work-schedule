@@ -875,10 +875,7 @@ createApp({
       guardCode: '',
       guardName: '',
       date: fmtDate(new Date()),
-      reason: 'ลากิจ / ลาป่วย',
-      replaceType: 'สแปร์นอก', // 'คนประจำมาแทน (OT)' | 'สแปร์นอก'
-      replacementCode: '',
-      replacementName: ''
+      reason: 'ลากิจ / ลาป่วย'
     });
 
     function initLeaveRecords() {
@@ -919,7 +916,7 @@ createApp({
           leaveForm.value.guardName = staff.name;
         }
       } else {
-        const first = permanentStaff.value[0];
+        const first = permanentStaff.value.find(s => !s.isVacant) || permanentStaff.value[0];
         leaveForm.value.guardNo = first.no;
         leaveForm.value.guardCode = first.code;
         leaveForm.value.guardName = first.name;
@@ -939,7 +936,7 @@ createApp({
     // (เดิมเก็บเป็นค่าเดียวต่อแถว ทำให้ลาหลายวันแล้วชื่อคนแทนทับกัน/ยกเลิกวันหนึ่งแล้วหายหมด)
     function refreshReplacementLabel(row, cycleId) {
       const recs = leaveRecords.value
-        .filter(r => r.cycleId === cycleId && r.guardNo === row.no)
+        .filter(r => r.cycleId === cycleId && r.guardNo === row.no && r.replacementName)
         .sort((a, b) => a.date.localeCompare(b.date));
       if (!recs.length) {
         row.replacementName = null;
@@ -952,13 +949,10 @@ createApp({
       row.replacementType = recs[recs.length - 1].replaceType;
     }
 
+    // แจ้งคนลา: บันทึกว่าคนประจำคนไหนลาวันไหน -> ระบบนับเป็นยอดที่ต้องขอสแปร์ (ไม่ระบุตัวสแปร์ เพราะ บ.ต้นสังกัดเป็นผู้จัด)
     function submitLeave() {
       if (!leaveForm.value.guardName) {
         alert('⚠️ กรุณาระบุชื่อพนักงานที่ลา');
-        return;
-      }
-      if (!leaveForm.value.replacementName) {
-        alert('⚠️ กรุณาระบุรหัสและชื่อ-สกุล ของผู้มาปฏิบัติหน้าที่แทน (ตามข้อ 3)');
         return;
       }
 
@@ -985,31 +979,28 @@ createApp({
       }
 
       row.shifts[dayIdx] = 'L'; // Set to Leave
+      const shift = prevShift === 'N' ? 'N' : 'D';
 
       const newRecord = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, // ไม่ซ้ำแม้บันทึกพร้อมกันในมิลลิวินาทีเดียว
         cycleId: currentCycle.value.id,
         date: leaveForm.value.date,
-        shift: prevShift === 'N' ? 'N' : 'D',
+        shift,
         originalShift: prevShift, // เก็บกะเดิมไว้คืนค่าเมื่อยกเลิก (เช่น PH)
         guardNo: row.no,
         guardCode: row.code,
         guardName: row.name,
         position: row.position,
         reason: leaveForm.value.reason,
-        replaceType: leaveForm.value.replaceType,
-        replacementCode: leaveForm.value.replacementCode.trim(),
-        replacementName: leaveForm.value.replacementName.trim(),
         loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
         timestamp: new Date().toISOString()
       };
 
       leaveRecords.value.unshift(newRecord);
-      refreshReplacementLabel(row, currentCycle.value.id);
       persistLeaveAdd(newRecord);
       saveSchedule(row);
       showLeaveModal.value = false;
-      alert(`✅ บันทึกคนลา & จัดคนแทนสำเร็จ!\nผู้ลา: ${row.name}\nผู้แทน: ${leaveForm.value.replacementName} [${leaveForm.value.replaceType}]`);
+      alert(`✅ บันทึกคนลาสำเร็จ\nผู้ลา: ${row.name}\nวันที่ ${newRecord.date} กะ ${shift === 'N' ? 'ดึก' : 'เช้า'}\nระบบนับเป็นยอดที่ต้องขอสแปร์ 1 อัตรา (ดูสรุปในหน้าตารางเวรรวม)`);
     }
 
     function cancelLeave(record) {
@@ -1053,6 +1044,211 @@ createApp({
       }
       alert('✅ ยกเลิกรายการลาเรียบร้อยแล้ว');
     }
+
+    // =========================================================================
+    // SPARE REQUESTS & ARRIVALS (ขอสแปร์ / สแปร์ที่มาปฏิบัติงาน)
+    //   ยอดขอสแปร์ของแต่ละกะ = ตำแหน่งว่าง (รอสแปร์) ที่มีกะทำงานวันนั้น + คนประจำที่แจ้งลา
+    //   คนประจำที่ไม่ได้ลา = ไม่ต้องขอสแปร์ / สแปร์ที่มาจริงบันทึกแยกเป็นรายกะ (ไม่ผูกกับคนลาคนใด)
+    //   พอกะสิ้นสุด ถ้าสแปร์มาไม่ครบ = จุดขาด
+    // =========================================================================
+    const SPARE_TYPE = 'สแปร์ บ.ต้นสังกัด'; // สแปร์มีประเภทเดียว (แทนเฉพาะกะนั้นของวันนั้น) / คนประจำคนใหม่ให้บรรจุในทะเบียน รปภ.ประจำ
+    const SHIFT_END = { D: { h: 18, m: 30, nextDay: false }, N: { h: 6, m: 30, nextDay: true } }; // เช้าจบ 18:30 / ดึกจบ 06:30 วันถัดไป
+    const nowTick = ref(Date.now());
+    const spareArrivals = ref([]);
+    const showSpareModal = ref(false);
+    const spareForm = ref({ date: fmtDate(new Date()), shift: 'D', type: SPARE_TYPE, code: '', name: '', note: '' });
+    const activeStaff = computed(() => permanentStaff.value.filter(s => !s.isVacant));
+
+    function initSpareArrivals() {
+      if (CLOUD_ENABLED) {
+        spareArrivals.value = [];
+        return;
+      }
+      const saved = safeParse('sws_spare_arrivals', []);
+      spareArrivals.value = Array.isArray(saved) ? saved : [];
+    }
+
+    function saveSpareArrivals() {
+      localStorage.setItem('sws_spare_arrivals', JSON.stringify(spareArrivals.value));
+    }
+
+    function persistSpareAdd(rec) {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('spareArrivals').doc(String(rec.id)).set(plain(rec)));
+      } else {
+        saveSpareArrivals();
+      }
+    }
+
+    function persistSpareRemove(rec) {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('spareArrivals').doc(String(rec.id)).delete());
+      } else {
+        saveSpareArrivals();
+      }
+    }
+
+    function sortSpareArrivals() {
+      spareArrivals.value.sort((a, b) =>
+        String(b.date).localeCompare(String(a.date)) || String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+    }
+
+    function openSpareModal(date, shift) {
+      spareForm.value = { date: date || fmtDate(new Date()), shift: shift || 'D', type: SPARE_TYPE, code: '', name: '', note: '' };
+      showSpareModal.value = true;
+    }
+
+    function submitSpare() {
+      const f = spareForm.value;
+      const name = (f.name || '').trim();
+      if (!name) {
+        alert('⚠️ กรุณาระบุชื่อ-สกุล ของสแปร์ที่มาปฏิบัติงาน');
+        return;
+      }
+      if (!f.date) {
+        alert('⚠️ กรุณาระบุวันที่');
+        return;
+      }
+      if (f.shift !== 'D' && f.shift !== 'N') {
+        alert('⚠️ กรุณาเลือกกะ (เช้า/ดึก)');
+        return;
+      }
+      const dup = spareArrivals.value.some(a => a.date === f.date && a.shift === f.shift && String(a.name).trim().toLowerCase() === name.toLowerCase());
+      if (dup) {
+        alert('⚠️ มีชื่อนี้บันทึกไว้ในกะนี้แล้ว');
+        return;
+      }
+      const rec = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        date: f.date,
+        shift: f.shift,
+        type: SPARE_TYPE,
+        code: (f.code || '').trim(),
+        name,
+        note: (f.note || '').trim(),
+        loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
+        timestamp: new Date().toISOString()
+      };
+      spareArrivals.value.unshift(rec);
+      sortSpareArrivals();
+      persistSpareAdd(rec);
+      showSpareModal.value = false;
+      alert(`✅ บันทึกสแปร์ที่มาปฏิบัติงานแล้ว\n${name} · ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
+    }
+
+    function cancelSpare(rec) {
+      if (!confirm(`ลบรายการสแปร์ ${rec.name} วันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'} หรือไม่?`)) return;
+      spareArrivals.value = spareArrivals.value.filter(a => a.id !== rec.id);
+      persistSpareRemove(rec);
+    }
+
+    // จำนวนสแปร์ที่มาจริง แยกตาม วันที่|กะ
+    const arrivalsIndex = computed(() => {
+      const m = {};
+      spareArrivals.value.forEach(a => {
+        const k = `${a.date}|${a.shift}`;
+        m[k] = (m[k] || 0) + 1;
+      });
+      return m;
+    });
+
+    // กะเดิมของคนลา (D/N) ดูจากบันทึกลา ถ้าไม่มีบันทึก (เช่น คลิกเซลล์เป็น L เอง) ใช้กะตามแพทเทิร์น
+    const leaveShiftIndex = computed(() => {
+      const m = {};
+      leaveRecords.value.forEach(r => {
+        m[`${r.guardNo}|${r.date}`] = (r.originalShift === 'N' || r.shift === 'N') ? 'N' : 'D';
+      });
+      return m;
+    });
+
+    function leaveShiftOf(row, date, dateString) {
+      const hit = leaveShiftIndex.value[`${row.no}|${dateString}`];
+      if (hit) return hit;
+      const idx = row.no <= 39 ? row.no - 1 : 39;
+      return getPatternShift(idx, date) === 'N' ? 'N' : 'D';
+    }
+
+    function shiftEndMs(dateString, type) {
+      const [y, m, d] = dateString.split('-').map(Number);
+      const e = SHIFT_END[type];
+      return new Date(y, m - 1, d + (e.nextDay ? 1 : 0), e.h, e.m).getTime();
+    }
+
+    // none = ไม่ต้องขอ, ok = สแปร์มาครบ, pending = กะยังไม่จบ/ยังรอ, short = กะจบแล้วแต่ยังไม่ครบ (จุดขาด)
+    function spareStatus(requested, arrived, dateString, type) {
+      if (requested === 0) return 'none';
+      if (arrived >= requested) return 'ok';
+      return nowTick.value >= shiftEndMs(dateString, type) ? 'short' : 'pending';
+    }
+
+    // สรุปยอดขอสแปร์ของวันหนึ่งๆ (rows = ตารางเวรของรอบที่วันนั้นสังกัด, dayIdx = ลำดับวันในรอบ)
+    function spareStatsFor(rows, dayIdx, date, dateString) {
+      const out = { D: { vacant: 0, leave: 0 }, N: { vacant: 0, leave: 0 } };
+      rows.forEach(r => {
+        const s = r.shifts[dayIdx];
+        if (r.isSpare) { // ตำแหน่งว่าง (รอสแปร์) และแถว 40 (โควตาสแปร์): กะทำงานทุกกะนับเป็นยอดขอ
+          const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
+          if (t) out[t].vacant++;
+          return;
+        }
+        if (s === 'L') out[leaveShiftOf(r, date, dateString)].leave++; // คนประจำแจ้งลา
+      });
+      ['D', 'N'].forEach(t => {
+        const o = out[t];
+        o.requested = o.vacant + o.leave;
+        o.arrived = arrivalsIndex.value[`${dateString}|${t}`] || 0;
+        o.missing = Math.max(0, o.requested - o.arrived);
+        o.status = spareStatus(o.requested, o.arrived, dateString, t);
+      });
+      return out;
+    }
+
+    function spareStatusText(o) {
+      if (!o || o.status === 'none') return '-';
+      if (o.status === 'ok') return '✓ ครบ';
+      if (o.status === 'short') return `⚠️ ขาด ${o.missing}`;
+      return `⏳ รอ ${o.missing}`;
+    }
+
+    function spareStatusClass(o) {
+      if (!o || o.status === 'none') return 'text-slate-300';
+      if (o.status === 'ok') return 'bg-emerald-100 text-emerald-800 font-semibold';
+      if (o.status === 'short') return 'bg-red-100 text-red-800 font-bold';
+      return 'bg-amber-100 text-amber-800 font-semibold';
+    }
+
+    // สรุปทุกวันในรอบที่เปิดอยู่ (ใช้ในหน้าตารางเวรรวม)
+    const spareDayStats = computed(() =>
+      currentCycleDays.value.map((day, i) => spareStatsFor(scheduleData.value, i, day.date, day.dateString)));
+
+    const spareTotals = computed(() => {
+      const t = { reqD: 0, reqN: 0, arrD: 0, arrN: 0, shortShifts: 0, shortPeople: 0, pendingShifts: 0, pendingPeople: 0 };
+      spareDayStats.value.forEach(st => {
+        ['D', 'N'].forEach(k => {
+          const o = st[k];
+          t['req' + k] += o.requested;
+          t['arr' + k] += o.arrived;
+          if (o.status === 'short') { t.shortShifts++; t.shortPeople += o.missing; }
+          if (o.status === 'pending') { t.pendingShifts++; t.pendingPeople += o.missing; }
+        });
+      });
+      return t;
+    });
+
+    // รายการจุดขาด (กะที่จบแล้วสแปร์ไม่ครบ) และกะที่ยังรอสแปร์
+    const spareShortagePoints = computed(() => {
+      const pts = [];
+      currentCycleDays.value.forEach((day, i) => {
+        const st = spareDayStats.value[i];
+        ['D', 'N'].forEach(k => {
+          const o = st[k];
+          if (o.status === 'short' || o.status === 'pending') {
+            pts.push({ dateString: day.dateString, dayName: day.dayName, shift: k, requested: o.requested, arrived: o.arrived, missing: o.missing, status: o.status });
+          }
+        });
+      });
+      return pts;
+    });
 
     // =========================================================================
     // 8 & 9. BILLING SUMMARY & EXPORT (Admin Only & 4 Signature Blocks)
@@ -1154,11 +1350,144 @@ createApp({
     });
 
     const billingSpareDispatches = computed(() => {
-      return leaveRecords.value.filter(r => r.date >= billingStartDate.value && r.date <= billingEndDate.value);
+      const inRange = d => d >= billingStartDate.value && d <= billingEndDate.value;
+      // สแปร์ที่มาปฏิบัติงานจริง (ไม่ผูกกับตำแหน่ง เพราะ บ.ต้นสังกัดเป็นผู้จัด)
+      const arrivals = spareArrivals.value.filter(r => inRange(r.date)).map(r => ({
+        id: r.id, date: r.date, shift: r.shift, replaceType: r.type,
+        replacementCode: r.code, replacementName: r.name,
+        position: 'ไม่ระบุ', guardName: 'บ.ต้นสังกัดจัด', loggedBy: r.loggedBy
+      }));
+      // ข้อมูลเก่าที่เคยบันทึกชื่อคนแทนไว้กับรายการลา
+      const legacy = leaveRecords.value.filter(r => r.replacementName && inRange(r.date));
+      return [...legacy, ...arrivals].sort((a, b) =>
+        String(a.date).localeCompare(String(b.date)) || String(a.shift).localeCompare(String(b.shift)));
     });
 
     function printBilling() {
       window.print();
+    }
+
+    // =========================================================================
+    // หน้า "ตารางเวรรวม (พิมพ์/Export)": เลือกช่วงวันที่ได้ พิมพ์/ส่งออกได้ มีช่องลายเซ็น (ข้ามรอบเงินเดือนได้)
+    // =========================================================================
+    const schedStartDate = ref('2026-11-23');
+    const schedEndDate = ref('2026-12-22');
+    const SCHED_MAX_DAYS = 62;
+
+    const schedRange = computed(() => {
+      const days = [];
+      let truncated = false;
+      const dayNamesTH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+      let cur = parseDate(schedStartDate.value);
+      const end = parseDate(schedEndDate.value);
+      while (cur <= end) {
+        if (days.length >= SCHED_MAX_DAYS) { truncated = true; break; }
+        const dateStr = fmtDate(cur);
+        days.push({
+          date: new Date(cur),
+          dateString: dateStr,
+          dayNumber: cur.getDate(),
+          monthNumber: cur.getMonth() + 1,
+          dayName: dayNamesTH[cur.getDay()],
+          isHoliday: isPublicHoliday(dateStr)
+        });
+        cur.setDate(cur.getDate() + 1);
+      }
+      return { days, truncated };
+    });
+    const schedRangeDays = computed(() => schedRange.value.days);
+    const schedRangeTruncated = computed(() => schedRange.value.truncated);
+
+    const schedPrint = computed(() => {
+      const days = schedRangeDays.value;
+      const ctxCache = {};
+      const ctxFor = id => {
+        if (!(id in ctxCache)) {
+          const c = getCycleContext(id);
+          ctxCache[id] = c ? { ...c, byNo: Object.fromEntries(c.rows.map(r => [r.no, r])) } : null;
+        }
+        return ctxCache[id];
+      };
+      const cells = days.map(day => {
+        const ctx = ctxFor(cycleIdForDate(day.date));
+        if (!ctx) return null;
+        const idx = utcDayNum(day.date.getFullYear(), day.date.getMonth(), day.date.getDate()) - ctx.startDayNum;
+        return { ctx, idx };
+      });
+
+      const rows = scheduleData.value.map(g => {
+        const shifts = cells.map(c => {
+          if (!c) return '-';
+          const r = c.ctx.byNo[g.no];
+          return (r && r.shifts[c.idx]) || '-';
+        });
+        const cnt = ch => shifts.filter(x => x === ch).length;
+        const d = cnt('D'), n = cnt('N'), ph = cnt('PH');
+        return {
+          no: g.no, position: g.position, code: g.code, name: g.name, isSpare: g.isSpare, isReliefPool: g.isReliefPool,
+          shifts, d, n, ph, h: cnt('H'), l: cnt('L'), workDays: d + n + ph
+        };
+      });
+
+      const stats = days.map((day, i) => {
+        const c = cells[i];
+        return c ? spareStatsFor(c.ctx.rows, c.idx, day.date, day.dateString) : null;
+      });
+      return { days, rows, stats };
+    });
+
+    const schedLeaveInRange = computed(() => leaveRecords.value
+      .filter(r => r.date >= schedStartDate.value && r.date <= schedEndDate.value)
+      .slice().sort((a, b) => String(a.date).localeCompare(String(b.date))));
+    const schedSpareInRange = computed(() => spareArrivals.value
+      .filter(r => r.date >= schedStartDate.value && r.date <= schedEndDate.value)
+      .slice().sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.shift).localeCompare(String(b.shift))));
+
+    function printSchedule() {
+      if (!isAdmin.value) return;
+      window.print();
+    }
+
+    function csvCell(v) {
+      const t = v === null || v === undefined ? '' : String(v);
+      return /[",\n\r]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+    }
+
+    // สร้างไฟล์ CSV (เปิดใน Excel ได้ ภาษาไทยไม่เพี้ยนเพราะใส่ BOM ตอนดาวน์โหลด)
+    function buildScheduleCsv() {
+      const { days, rows, stats } = schedPrint.value;
+      const lines = [];
+      lines.push([`ตารางเวรรวม ${schedStartDate.value} ถึง ${schedEndDate.value}`]);
+      lines.push(['No.', 'ตำแหน่ง', 'รหัส', 'ชื่อ-สกุล', ...days.map(d => `${d.dayNumber}/${d.monthNumber} ${d.dayName}`), 'D', 'N', 'PH', 'หยุด (H)', 'ลา (L)', 'รวมวันทำงาน']);
+      rows.forEach(r => lines.push([r.no, r.position, r.code || '-', r.name, ...r.shifts, r.d, r.n, r.ph, r.h, r.l, r.workDays]));
+      lines.push([]);
+      [['D', 'กะเช้า'], ['N', 'กะดึก']].forEach(([k, label]) => {
+        lines.push(['', '', '', `${label}: ขอสแปร์`, ...stats.map(s => (s ? s[k].requested : ''))]);
+        lines.push(['', '', '', `${label}: สแปร์ที่มา`, ...stats.map(s => (s ? s[k].arrived : ''))]);
+        lines.push(['', '', '', `${label}: สถานะ`, ...stats.map(s => (s && s[k].status !== 'none' ? spareStatusText(s[k]).replace(/[✓⚠️⏳]/g, '').trim() : ''))]);
+      });
+      lines.push([]);
+      lines.push(['รายการแจ้งลา (ขอสแปร์)']);
+      lines.push(['วันที่', 'กะ', 'รหัส', 'ชื่อ-สกุล', 'ตำแหน่ง', 'เหตุผล', 'ผู้บันทึก']);
+      schedLeaveInRange.value.forEach(r => lines.push([r.date, r.shift, r.guardCode || '-', r.guardName, r.position, r.reason, r.loggedBy]));
+      lines.push([]);
+      lines.push(['สแปร์ที่มาปฏิบัติงาน']);
+      lines.push(['วันที่', 'กะ', 'รหัส', 'ชื่อ-สกุล', 'หมายเหตุ', 'ผู้บันทึก']);
+      schedSpareInRange.value.forEach(r => lines.push([r.date, r.shift, r.code || '-', r.name, r.note || '', r.loggedBy]));
+      return lines.map(l => l.map(csvCell).join(',')).join('\r\n');
+    }
+
+    function exportScheduleCsv() {
+      if (!isAdmin.value) return;
+      const blob = new Blob(['\ufeff' + buildScheduleCsv()], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `schedule_${schedStartDate.value}_${schedEndDate.value}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     // =========================================================================
@@ -1263,9 +1592,14 @@ createApp({
         alert('🔒 หัวข้อ "วางบิล (Billing Summary)" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น ตามข้อกำหนดข้อ 7');
         return;
       }
-      if (tab === 'billing') {
-        cloudCycleCache.value = {}; // เข้าหน้าวางบิลทุกครั้ง โหลดตารางรอบอื่นจากระบบกลางใหม่
+      if (tab === 'schedule_print' && !isAdmin.value) {
+        alert('🔒 หัวข้อ "ตารางเวรรวม (พิมพ์/Export)" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น');
+        return;
+      }
+      if (tab === 'billing' || tab === 'schedule_print') {
+        cloudCycleCache.value = {}; // เข้าหน้าวางบิล/พิมพ์ตารางทุกครั้ง โหลดตารางรอบอื่นจากระบบกลางใหม่
         loadBillingCycles();
+        loadCyclesForDays(schedRangeDays.value);
       }
       currentTab.value = tab;
     }
@@ -1354,10 +1688,14 @@ createApp({
     }
 
     // โหลดตารางของรอบอื่นที่ช่วงวางบิลคาบเกี่ยว (รอบที่เปิดอยู่ใช้ข้อมูลสดอยู่แล้ว)
-    async function loadBillingCycles() {
+    function loadBillingCycles() {
+      return loadCyclesForDays(billingDays.value);
+    }
+
+    async function loadCyclesForDays(days) {
       if (!CLOUD_ENABLED) return;
       const ids = new Set();
-      billingDays.value.forEach(d => ids.add(cycleIdForDate(d.date)));
+      days.forEach(d => ids.add(cycleIdForDate(d.date)));
       for (const id of ids) {
         if (id === currentCycle.value.id || cloudCycleCache.value[id]) continue;
         const cycle = payrollCycles.value.find(c => c.id === id);
@@ -1402,6 +1740,13 @@ createApp({
           .sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
         cloudStatus.value = 'online';
       }, onErr('leaveRecords'));
+
+      fbDb.collection('spareArrivals').onSnapshot(snap => {
+        if (snap.metadata.hasPendingWrites) return;
+        spareArrivals.value = snap.docs.map(d => d.data());
+        sortSpareArrivals();
+        cloudStatus.value = 'online';
+      }, onErr('spareArrivals'));
     }
 
     // Admin: ย้ายข้อมูลที่เคยแก้ไว้ใน localStorage ของเครื่องนี้ ขึ้นระบบกลาง (ทำครั้งเดียว)
@@ -1409,7 +1754,7 @@ createApp({
       if (!CLOUD_ENABLED || !isAdmin.value) return;
       if (!confirm('ย้ายข้อมูลที่บันทึกไว้ในเครื่องนี้ขึ้นระบบกลางหรือไม่?\n\n- ทะเบียน รปภ.ประจำ และวันนักขัตฤกษ์ จะทับข้อมูลในระบบกลาง\n- เฉพาะแถวตารางเวรที่เคยแก้ไข/มีบันทึกลา จะถูกอัปโหลด\n- บัญชีผู้ใช้เดิมในเครื่อง (รหัสผ่านแบบเก่า) จะไม่ถูกย้าย\n- ข้อมูลในเครื่องยังอยู่เหมือนเดิม')) return;
 
-      const sum = { staff: 0, holidays: 0, leaves: 0, rows: 0, cycles: 0 };
+      const sum = { staff: 0, holidays: 0, leaves: 0, spares: 0, rows: 0, cycles: 0 };
       try {
         const staff = safeParse('sws_permanent_staff', null);
         if (Array.isArray(staff) && staff.length) {
@@ -1425,6 +1770,11 @@ createApp({
         if (Array.isArray(leaves) && leaves.length) {
           await commitOps(leaves.map(r => batch => batch.set(fbDb.collection('leaveRecords').doc(String(r.id)), plain(r))));
           sum.leaves = leaves.length;
+        }
+        const spares = safeParse('sws_spare_arrivals', []);
+        if (Array.isArray(spares) && spares.length) {
+          await commitOps(spares.map(r => batch => batch.set(fbDb.collection('spareArrivals').doc(String(r.id)), plain(r))));
+          sum.spares = spares.length;
         }
         const keys = [];
         for (let i = 0; i < localStorage.length; i++) {
@@ -1447,7 +1797,7 @@ createApp({
           sum.rows += changed.length;
           sum.cycles++;
         }
-        alert(`✅ ย้ายข้อมูลขึ้นระบบกลางสำเร็จ\n- รายชื่อ รปภ.ประจำ: ${sum.staff} ตำแหน่ง\n- วันนักขัตฤกษ์: ${sum.holidays} วัน\n- บันทึกคนลา: ${sum.leaves} รายการ\n- แถวตารางเวรที่แก้ไข: ${sum.rows} แถว (${sum.cycles} รอบ)`);
+        alert(`✅ ย้ายข้อมูลขึ้นระบบกลางสำเร็จ\n- รายชื่อ รปภ.ประจำ: ${sum.staff} ตำแหน่ง\n- วันนักขัตฤกษ์: ${sum.holidays} วัน\n- บันทึกคนลา: ${sum.leaves} รายการ\n- สแปร์ที่มาปฏิบัติงาน: ${sum.spares} รายการ\n- แถวตารางเวรที่แก้ไข: ${sum.rows} แถว (${sum.cycles} รอบ)`);
       } catch (e) {
         cloudWriteError(e);
       }
@@ -1458,8 +1808,11 @@ createApp({
       initHolidays();
       initPermanentStaff();
       initLeaveRecords();
+      initSpareArrivals();
       initSchedule();
       if (CLOUD_ENABLED) startCloudListeners();
+      // อัปเดตเวลาทุกนาที เพื่อให้สถานะ "รอสแปร์ -> ขาด" เปลี่ยนเองเมื่อหมดกะ
+      if (typeof setInterval === 'function') setInterval(() => { nowTick.value = Date.now(); }, 60000);
     });
 
     watch(selectedCycleIndex, () => {
@@ -1468,10 +1821,16 @@ createApp({
       const c = currentCycle.value;
       billingStartDate.value = fmtDate(new Date(c.startYear, c.startMonthNum - 1, 23));
       billingEndDate.value = fmtDate(new Date(c.endYear, c.endMonthNum - 1, 22));
+      schedStartDate.value = fmtDate(new Date(c.startYear, c.startMonthNum - 1, 23));
+      schedEndDate.value = fmtDate(new Date(c.endYear, c.endMonthNum - 1, 22));
     });
 
     watch([billingStartDate, billingEndDate], () => {
       loadBillingCycles();
+    });
+
+    watch([schedStartDate, schedEndDate], () => {
+      loadCyclesForDays(schedRangeDays.value);
     });
 
     return {
@@ -1514,6 +1873,29 @@ createApp({
       editShift,
       countShifts,
       cloudEnabled: CLOUD_ENABLED,
+      activeStaff,
+      nowTick,
+      spareArrivals,
+      showSpareModal,
+      spareForm,
+      openSpareModal,
+      submitSpare,
+      cancelSpare,
+      spareDayStats,
+      spareTotals,
+      spareShortagePoints,
+      spareStatusText,
+      spareStatusClass,
+      schedStartDate,
+      schedEndDate,
+      schedRangeDays,
+      schedRangeTruncated,
+      schedPrint,
+      schedLeaveInRange,
+      schedSpareInRange,
+      printSchedule,
+      buildScheduleCsv,
+      exportScheduleCsv,
       cloudStatus,
       authReady,
       migrateLocalToCloud,
