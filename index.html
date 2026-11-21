@@ -51,6 +51,29 @@
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased min-h-screen">
   <div id="app" v-cloak class="flex flex-col min-h-screen">
+
+    <!-- ===== หน้าใส่รหัส PIN ก่อนเข้าดูตาราง ===== -->
+    <div v-if="!pinUnlocked" class="min-h-screen flex items-center justify-center bg-slate-900 px-4">
+      <div class="w-full max-w-xs bg-white rounded-2xl shadow-2xl p-6 text-center space-y-4">
+        <div class="w-14 h-14 mx-auto rounded-xl bg-amber-500 flex items-center justify-center text-2xl font-bold text-slate-950 shadow">CT</div>
+        <div>
+          <h1 class="text-base font-bold text-slate-900">Security Work Schedule</h1>
+          <p class="text-xs text-slate-500 mt-0.5">กรุณาใส่รหัส PIN เพื่อเข้าดูตารางเวร</p>
+        </div>
+        <input type="password" inputmode="numeric" autocomplete="off" maxlength="8" autofocus
+               v-model="pinInput" @keyup.enter="submitPin" placeholder="••••"
+               class="w-full text-center tracking-[0.5em] text-2xl font-bold border-2 border-slate-300 rounded-xl py-2.5 focus:outline-none focus:border-amber-500">
+        <p v-if="pinError" class="text-xs text-red-600 font-semibold">{{ pinError }}</p>
+        <label class="flex items-center justify-center gap-2 text-xs text-slate-600">
+          <input type="checkbox" v-model="pinRemember"> จำเครื่องนี้ไว้ (30 วัน)
+        </label>
+        <button @click="submitPin" class="w-full bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 rounded-xl transition">
+          เข้าสู่หน้าตาราง
+        </button>
+      </div>
+    </div>
+
+    <template v-if="pinUnlocked">
     
     <!-- Top Header -->
     <header class="bg-slate-900 text-white shadow-md md:sticky md:top-0 z-50 border-b border-amber-500 no-print">
@@ -81,6 +104,8 @@
                 :title="cloudStatus === 'local' ? 'ข้อมูลเก็บในเบราว์เซอร์เครื่องนี้เท่านั้น ไม่แชร์ข้ามเครื่อง' : ''">
             {{ cloudStatus === 'online' ? '☁️ ออนไลน์ (ข้อมูลกลาง)' : cloudStatus === 'connecting' ? '☁️ กำลังเชื่อมต่อ...' : cloudStatus === 'error' ? '⚠️ เชื่อมต่อระบบกลางไม่ได้' : '💾 เครื่องนี้เท่านั้น' }}
           </span>
+
+          <button @click="lockApp" class="text-[10px] px-2 py-1 rounded-full border border-slate-600 bg-slate-800 text-slate-300 hover:text-white" title="ล็อกหน้าจอ (ต้องใส่ PIN ใหม่)">🔒 ล็อก</button>
 
           <!-- Logged in as Admin -->
           <div v-if="isAdmin" class="flex flex-wrap items-center gap-x-2 gap-y-1 max-w-full rounded-2xl sm:rounded-full bg-emerald-950 border border-emerald-500/40 text-emerald-300 text-xs px-3 py-1.5 font-medium">
@@ -122,24 +147,24 @@
         
         <!-- Navigation Tabs (Separated as requested) -->
         <nav class="flex space-x-1 overflow-x-auto text-xs font-medium min-w-0 max-w-full w-full lg:w-auto">
-          <!-- 1. Schedule -->
           <button @click="selectTab('schedule')" 
                   :class="currentTab === 'schedule' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             📅 ตารางเวรรวม
           </button>
-
-          <!-- 2. แจ้งคนลา (ขอสแปร์) -->
+          <button @click="selectTab('spare_summary')" 
+                  :class="currentTab === 'spare_summary' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
+                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
+            📊 สรุปการขอสแปร์
+          </button>
           <button @click="selectTab('leave_replace')" 
                   :class="currentTab === 'leave_replace' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
-            📝 แจ้งคนลา (ขอสแปร์)
+            📝 คนแจ้งลา
             <span v-if="leaveRecords.length > 0" class="bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
               {{ leaveRecords.length }}
             </span>
           </button>
-
-          <!-- 2.1 สแปร์ที่มาปฏิบัติงาน -->
           <button @click="selectTab('spare_arrivals')" 
                   :class="currentTab === 'spare_arrivals' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
@@ -148,38 +173,28 @@
               {{ spareArrivals.length }}
             </span>
           </button>
-
-          <!-- 2.2 ตารางเวรรวม พิมพ์/Export -->
+          <button @click="selectTab('personal')" 
+                  :class="currentTab === 'personal' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
+                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
+            👤 สรุปรายบุคคล (รปภ.)
+          </button>
+          <button @click="selectTab('permanent_roster')" 
+                  :class="currentTab === 'permanent_roster' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
+                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
+            👥 จัดการ รปภ.ประจำ
+          </button>
           <button @click="selectTab('schedule_print')" 
                   :class="currentTab === 'schedule_print' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             📄 ตารางเวรรวม (พิมพ์/Export)
             <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
           </button>
-
-          <!-- 3. Permanent Roster -->
-          <button @click="selectTab('permanent_roster')" 
-                  :class="currentTab === 'permanent_roster' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
-                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
-            👥 จัดการ รปภ.ประจำ
-          </button>
-
-          <!-- 4. Guard Individual -->
-          <button @click="selectTab('personal')" 
-                  :class="currentTab === 'personal' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
-                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
-            👤 สรุปรายบุคคล (รปภ.)
-          </button>
-
-          <!-- 5. Billing Export (Admin Only) -->
           <button @click="selectTab('billing')" 
                   :class="currentTab === 'billing' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             🖨️ วางบิล (Billing)
             <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
           </button>
-
-          <!-- 6. Admin Settings & Holidays (Admin Only) -->
           <button v-if="isAdmin" @click="selectTab('admin_settings')" 
                   :class="currentTab === 'admin_settings' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
@@ -384,13 +399,19 @@
           </div>
         </div>
 
-        <!-- ====== สรุปการขอสแปร์รายวัน (แยกด้านล่างตาราง) ====== -->
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB: สรุปการขอสแปร์ (แยกจากตารางเวรรวม)                                 -->
+      <!-- ===================================================================== -->
+      <section v-if="currentTab === 'spare_summary'" class="space-y-2.5">
+        <!-- ====== สรุปการขอสแปร์รายวัน ====== -->
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-3 space-y-3">
           <div>
-            <h3 class="text-sm font-bold text-slate-800">📊 สรุปการขอสแปร์ รอบ {{ currentCycle.name }}</h3>
+            <h2 class="text-base font-bold text-slate-800">📊 สรุปการขอสแปร์ รอบ {{ currentCycle.name }}</h2>
             <p class="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
               ยอดขอสแปร์ = ตำแหน่งว่าง (รอสแปร์) + แถว 40 (โควตาสแปร์หมุนเวียน) ที่มีกะทำงานในวันนั้น + คนประจำที่แจ้งลา · คนประจำที่ไม่ได้ลา ไม่ต้องขอสแปร์ ·
-              ส่วนชื่อสแปร์ที่มาจริงบันทึกที่แท็บ "สแปร์ที่มาปฏิบัติงาน" · กะเช้าจบ 18:30 / กะดึกจบ 06:30 ของวันถัดไป
+              ส่วนชื่อสแปร์ที่มาจริง (และจุดที่เข้าแทน) บันทึกที่แท็บ "สแปร์ที่มาปฏิบัติงาน" · กะเช้าจบ 18:30 / กะดึกจบ 06:30 ของวันถัดไป
               ถ้าหมดกะแล้วสแปร์มาไม่ครบ จะสรุปเป็น "จุดขาด"
             </p>
           </div>
@@ -429,6 +450,14 @@
                 <span class="px-1.5 py-0.5 rounded" :class="spareStatusClass(p)">{{ spareStatusText(p) }}</span>
                 <button v-if="isAdmin || isSupervisor" @click="openSpareModal(p.dateString, p.shift)"
                         class="ml-auto bg-purple-100 hover:bg-purple-200 text-purple-800 px-2 py-0.5 rounded font-semibold">➕ บันทึกสแปร์ที่มา</button>
+                <div class="w-full flex flex-wrap gap-1.5">
+                  <span v-for="sp in p.uncovered" :key="sp.no"
+                        class="inline-flex items-center gap-1 bg-red-50 border border-red-200 text-red-800 rounded px-1.5 py-0.5 text-[10px]">
+                    จุดที่ยังไม่มีสแปร์: {{ sp.text }}
+                    <button v-if="isAdmin || isSupervisor" @click="openSpareModal(p.dateString, p.shift, sp.no)"
+                            class="text-purple-700 font-bold" title="บันทึกสแปร์ที่เข้าแทนจุดนี้">＋</button>
+                  </span>
+                </div>
               </div>
             </div>
           </div>
@@ -483,6 +512,7 @@
           </div>
         </div>
       </section>
+
 
       <!-- ===================================================================== -->
       <!-- TAB 2: จัดการคนลา & จัดคนแทน (Leave & Replacements)                    -->
@@ -547,7 +577,7 @@
         <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 class="text-base font-bold text-slate-800">สแปร์ที่มาปฏิบัติงาน</h2>
-            <p class="text-xs text-slate-500">บันทึกชื่อสแปร์จริงที่มาในแต่ละกะ (ไม่ผูกกับคนลาคนใดคนหนึ่ง เพราะ บ.ต้นสังกัดเป็นผู้จัด) ถ้ากะไหนไม่มีชื่อสแปร์ครบตามยอดขอ พอหมดกะระบบจะสรุปเป็น "จุดขาด" ในหน้าตารางเวรรวม</p>
+            <p class="text-xs text-slate-500">บันทึกชื่อสแปร์จริงที่มาในแต่ละกะ พร้อมเลือกว่าเข้าแทนจุดไหน (บ.ต้นสังกัดเป็นผู้จัดตัวสแปร์) ถ้ากะไหนไม่มีชื่อสแปร์ครบตามยอดขอ พอหมดกะระบบจะสรุปเป็น "จุดขาด" ในหน้าตารางเวรรวม</p>
           </div>
           <button v-if="isAdmin || isSupervisor" @click="openSpareModal()" class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-3.5 py-2 rounded-lg text-xs shadow-sm transition flex items-center gap-1.5">
             ➕ บันทึกสแปร์ที่มา
@@ -565,6 +595,7 @@
                   <th class="p-2.5 text-center w-12">ลำดับ</th>
                   <th class="p-2.5">วันที่</th>
                   <th class="p-2.5 text-center">กะ</th>
+                  <th class="p-2.5">แทนจุด</th>
                   <th class="p-2.5">รหัส</th>
                   <th class="p-2.5">ชื่อ - สกุล สแปร์</th>
                   <th class="p-2.5">หมายเหตุ</th>
@@ -577,6 +608,7 @@
                   <td class="p-2.5 text-center text-slate-500">{{ idx + 1 }}</td>
                   <td class="p-2.5 font-mono font-bold">{{ rec.date }}</td>
                   <td class="p-2.5 text-center font-bold" :class="rec.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">{{ rec.shift === 'D' ? 'เช้า (D)' : 'ดึก (N)' }}</td>
+                  <td class="p-2.5 text-slate-700">{{ rec.positionText || '-' }}</td>
                   <td class="p-2.5 font-mono text-slate-600">{{ rec.code || '-' }}</td>
                   <td class="p-2.5 font-bold text-slate-900">{{ rec.name }}</td>
                   <td class="p-2.5 text-slate-500">{{ rec.note || '-' }}</td>
@@ -728,6 +760,7 @@
                   <th class="p-1.5 border border-slate-300 text-center w-8">ลำดับ</th>
                   <th class="p-1.5 border border-slate-300">วันที่</th>
                   <th class="p-1.5 border border-slate-300 text-center">กะ</th>
+                  <th class="p-1.5 border border-slate-300">แทนจุด</th>
                   <th class="p-1.5 border border-slate-300">รหัส</th>
                   <th class="p-1.5 border border-slate-300">ชื่อ - สกุล สแปร์</th>
                   <th class="p-1.5 border border-slate-300">หมายเหตุ</th>
@@ -735,11 +768,12 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="schedSpareInRange.length === 0"><td colspan="7" class="p-2 text-center text-slate-400 border border-slate-300">ไม่มีรายการสแปร์ที่มาปฏิบัติงานในช่วงนี้</td></tr>
+                <tr v-if="schedSpareInRange.length === 0"><td colspan="8" class="p-2 text-center text-slate-400 border border-slate-300">ไม่มีรายการสแปร์ที่มาปฏิบัติงานในช่วงนี้</td></tr>
                 <tr v-for="(r, i) in schedSpareInRange" :key="r.id">
                   <td class="p-1 border border-slate-300 text-center">{{ i + 1 }}</td>
                   <td class="p-1 border border-slate-300 font-mono">{{ r.date }}</td>
                   <td class="p-1 border border-slate-300 text-center font-bold">{{ r.shift }}</td>
+                  <td class="p-1 border border-slate-300">{{ r.positionText || '-' }}</td>
                   <td class="p-1 border border-slate-300 font-mono">{{ r.code || '-' }}</td>
                   <td class="p-1 border border-slate-300 font-bold">{{ r.name }}</td>
                   <td class="p-1 border border-slate-300">{{ r.note || '-' }}</td>
@@ -1290,7 +1324,7 @@
                 <label class="text-[10px] text-slate-500 block">เลือกลำดับ / ตำแหน่ง:</label>
                 <select v-model="leaveForm.guardNo" @change="onLeaveGuardChange" class="w-full bg-white border rounded p-1 font-semibold">
                   <option v-for="g in activeStaff" :key="g.no" :value="g.no">
-                    No.{{ g.no }} ({{ g.position }})
+                    No.{{ g.no }} {{ g.name }} ({{ g.position }})
                   </option>
                 </select>
               </div>
@@ -1352,6 +1386,19 @@
                 </div>
               </div>
             </div>
+            <div>
+              <label class="text-[10px] text-slate-600 block">เข้าแทนจุดไหน: <span class="text-red-500">*</span></label>
+              <select v-model="spareForm.positionNo" class="w-full bg-white border rounded p-1 font-semibold">
+                <option value="">— เลือกจุดที่เข้าแทน —</option>
+                <optgroup v-if="spareSpotOptions.needed.length" :label="'จุดที่ยังต้องการสแปร์ (' + spareSpotOptions.needed.length + ')'">
+                  <option v-for="o in spareSpotOptions.needed" :key="'n' + o.no" :value="o.no">{{ o.text }}</option>
+                </optgroup>
+                <optgroup label="ตำแหน่งอื่นๆ">
+                  <option v-for="o in spareSpotOptions.others" :key="'o' + o.no" :value="o.no">{{ o.text }}</option>
+                </optgroup>
+              </select>
+              <p v-if="!spareSpotOptions.needed.length" class="text-[10px] text-slate-400 mt-0.5">วัน/กะนี้ไม่มีจุดที่ค้างขอสแปร์ (หรือมีสแปร์ครบแล้ว) เลือกจากตำแหน่งอื่นได้</p>
+            </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
                 <label class="text-[10px] text-slate-600 block">รหัส (ถ้ามี):</label>
@@ -1380,6 +1427,7 @@
       </div>
     </div>
 
+    </template>
   </div>
 
   <!-- Firebase SDK (compat, ปักเวอร์ชัน) + ค่า config ของโปรเจกต์ -->

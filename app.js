@@ -20,6 +20,12 @@ function safeParse(key, fallback) {
 // มาตรฐาน GDDL 5/2: ชั่วโมงทำงานรวมไม่เกิน 60 ชม. ต่อสัปดาห์ (จันทร์-อาทิตย์)
 const GDDL_MAX_WEEK_HOURS = 60;
 
+// รหัส PIN ก่อนเข้าดูตาราง (หน้าล็อกฝั่งเบราว์เซอร์ เปลี่ยนรหัสได้ที่นี่)
+const ACCESS_PIN = '5353';
+const PIN_REMEMBER_DAYS = 30; // ถ้าติ๊ก "จำเครื่องนี้" จะไม่ต้องใส่ซ้ำกี่วัน
+const PIN_MAX_FAILS = 5;      // ใส่ผิดเกินนี้จะถูกหน่วงเวลา
+const PIN_LOCK_SECONDS = 30;
+
 // =========================================================================
 // FIREBASE (ระบบกลาง) — เปิดใช้เมื่อโหลด Firebase SDK + firebase-config.js สำเร็จ
 // ถ้าไม่มี/โหลดไม่ได้ ระบบจะกลับไปทำงานแบบเดิม คือเก็บใน localStorage ของเครื่องนั้น
@@ -50,6 +56,54 @@ createApp({
     // Current Active Tab
     const currentTab = ref('schedule'); 
     // Tabs: 'schedule' | 'leave_replace' | 'permanent_roster' | 'personal' | 'billing' | 'admin_settings'
+
+    // =========================================================================
+    // 0. PIN GATE (หน้าใส่รหัสก่อนเข้าดูตาราง)
+    // =========================================================================
+    const pinUnlocked = ref((() => {
+      const ok = safeParse('sws_pin_ok', null);
+      return !!(ok && ok.until > Date.now());
+    })());
+    const pinInput = ref('');
+    const pinError = ref('');
+    const pinRemember = ref(true);
+    let pinFails = 0;
+    let pinLockedUntil = 0;
+
+    function submitPin() {
+      const now = Date.now();
+      if (now < pinLockedUntil) {
+        pinError.value = `ใส่รหัสผิดหลายครั้ง กรุณารออีก ${Math.ceil((pinLockedUntil - now) / 1000)} วินาที`;
+        return;
+      }
+      if (pinInput.value.trim() === ACCESS_PIN) {
+        pinFails = 0;
+        pinError.value = '';
+        pinInput.value = '';
+        pinUnlocked.value = true;
+        if (pinRemember.value) {
+          localStorage.setItem('sws_pin_ok', JSON.stringify({ until: now + PIN_REMEMBER_DAYS * 86400000 }));
+        }
+        return;
+      }
+      pinInput.value = '';
+      pinFails++;
+      if (pinFails >= PIN_MAX_FAILS) {
+        pinFails = 0;
+        pinLockedUntil = now + PIN_LOCK_SECONDS * 1000;
+        pinError.value = `ใส่รหัสผิดหลายครั้ง กรุณารอ ${PIN_LOCK_SECONDS} วินาที`;
+      } else {
+        pinError.value = '❌ รหัส PIN ไม่ถูกต้อง';
+      }
+    }
+
+    function lockApp() {
+      localStorage.removeItem('sws_pin_ok');
+      pinUnlocked.value = false;
+      pinInput.value = '';
+      pinError.value = '';
+      currentTab.value = 'schedule';
+    }
 
     // =========================================================================
     // 4. USER AUTHENTICATION & RBAC (Admin & Supervisor Approval Flow)
@@ -847,6 +901,10 @@ createApp({
     }
 
     async function resetScheduleToMaster() {
+      if (!isAdmin.value) {
+        alert('🔒 ปุ่มรีเซ็ต Master ใช้ได้เฉพาะ Admin (Site Manager) เท่านั้น');
+        return;
+      }
       if (!confirm('⚠️ ต้องการรีเซ็ตตารางเวรของรอบนี้กลับสู่ Master Draft ดั้งเดิมหรือไม่?\n(ข้อมูลการสลับกะที่เคยแก้ไขด้วยมือจะถูกแทนที่)')) return;
       const cycle = currentCycle.value;
       if (CLOUD_ENABLED) {
@@ -949,58 +1007,95 @@ createApp({
       row.replacementType = recs[recs.length - 1].replaceType;
     }
 
-    // แจ้งคนลา: บันทึกว่าคนประจำคนไหนลาวันไหน -> ระบบนับเป็นยอดที่ต้องขอสแปร์ (ไม่ระบุตัวสแปร์ เพราะ บ.ต้นสังกัดเป็นผู้จัด)
-    function submitLeave() {
-      if (!leaveForm.value.guardName) {
+    // แจ้งคนลา: บันทึกว่าคนประจำคนไหนลาวันไหน -> ระบบนับเป็นยอดที่ต้องขอสแปร์
+    // ผูกกับรอบเงินเดือนตาม "วันที่ลา" โดยอัตโนมัติ ไม่ว่าหน้าจอกำลังดูรอบไหนอยู่
+    async function submitLeave() {
+      const f = leaveForm.value;
+      if (!f.guardName) {
         alert('⚠️ กรุณาระบุชื่อพนักงานที่ลา');
         return;
       }
-
-      const dayIdx = currentCycleDays.value.findIndex(d => d.dateString === leaveForm.value.date);
-      const row = scheduleData.value.find(s => s.no === leaveForm.value.guardNo);
-
-      if (!row) {
-        alert('⚠️ ไม่พบตำแหน่งที่เลือกในตารางเวร');
+      if (!f.date) {
+        alert('⚠️ กรุณาระบุวันที่ลา');
         return;
       }
-      if (dayIdx === -1) {
-        alert(`⚠️ วันที่ ${leaveForm.value.date || '(ไม่ได้ระบุ)'} ไม่อยู่ในรอบ ${currentCycle.value.name}\nกรุณาเลือกรอบเงินเดือนด้านบนให้ตรงกับวันที่ลา แล้วบันทึกใหม่`);
+      const dateObj = parseDate(f.date);
+      const cycleId = cycleIdForDate(dateObj);
+      const cycle = payrollCycles.value.find(c => c.id === cycleId);
+      if (!cycle) {
+        const list = payrollCycles.value;
+        alert(`⚠️ วันที่ ${f.date} อยู่นอกช่วงรอบเงินเดือนที่ระบบรองรับ (${list[0].name} ถึง ${list[list.length - 1].name})`);
+        return;
+      }
+      const dayIdx = utcDayNum(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate())
+        - utcDayNum(cycle.startYear, cycle.startMonthNum - 1, 23);
+      const isCurrent = cycleId === currentCycle.value.id;
+
+      // หาแถวของคนลาในรอบที่วันที่นั้นสังกัดอยู่
+      let row = null;
+      let allRows = null;
+      let cloudRef = null;
+      try {
+        if (isCurrent) {
+          row = scheduleData.value.find(r => r.no === f.guardNo);
+        } else if (CLOUD_ENABLED) {
+          cloudRef = fbDb.collection('schedules').doc(cycleId).collection('rows').doc(String(f.guardNo));
+          const snap = await cloudRef.get();
+          row = snap.exists ? snap.data() : (buildCycleRows(cycle).find(r => r.no === f.guardNo) || null);
+        } else {
+          const saved = safeParse(`sws_schedule_v3_${cycleId}`, null);
+          allRows = Array.isArray(saved) && saved.length ? saved : buildCycleRows(cycle);
+          row = allRows.find(r => r.no === f.guardNo);
+        }
+      } catch (e) {
+        cloudWriteError(e);
+        return;
+      }
+      if (!row || !Array.isArray(row.shifts) || dayIdx < 0 || dayIdx >= row.shifts.length) {
+        alert('⚠️ ไม่พบตำแหน่ง/วันที่ที่เลือกในตารางเวร');
         return;
       }
 
       const prevShift = row.shifts[dayIdx];
       if (prevShift === 'H') {
-        alert(`⚠️ วันที่ ${leaveForm.value.date} เป็นวันหยุด (H) ของ ${row.name} อยู่แล้ว`);
+        alert(`⚠️ วันที่ ${f.date} เป็นวันหยุด (H) ของ ${f.guardName} อยู่แล้ว`);
         return;
       }
       if (prevShift === 'L') {
-        alert(`⚠️ วันที่ ${leaveForm.value.date} มีบันทึกลาของ ${row.name} อยู่แล้ว`);
+        alert(`⚠️ วันที่ ${f.date} มีบันทึกลาของ ${f.guardName} อยู่แล้ว`);
         return;
       }
 
       row.shifts[dayIdx] = 'L'; // Set to Leave
       const shift = prevShift === 'N' ? 'N' : 'D';
+      const staff = permanentStaff.value.find(s => s.no === f.guardNo);
 
       const newRecord = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, // ไม่ซ้ำแม้บันทึกพร้อมกันในมิลลิวินาทีเดียว
-        cycleId: currentCycle.value.id,
-        date: leaveForm.value.date,
+        cycleId,
+        date: f.date,
         shift,
         originalShift: prevShift, // เก็บกะเดิมไว้คืนค่าเมื่อยกเลิก (เช่น PH)
-        guardNo: row.no,
-        guardCode: row.code,
-        guardName: row.name,
-        position: row.position,
-        reason: leaveForm.value.reason,
+        guardNo: f.guardNo,
+        guardCode: f.guardCode,
+        guardName: f.guardName,
+        position: staff ? staff.position : row.position,
+        reason: f.reason,
         loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
         timestamp: new Date().toISOString()
       };
 
       leaveRecords.value.unshift(newRecord);
       persistLeaveAdd(newRecord);
-      saveSchedule(row);
+      if (isCurrent) {
+        saveSchedule(row);
+      } else if (CLOUD_ENABLED) {
+        cloudWrite(cloudRef.set(plain(row)));
+      } else {
+        localStorage.setItem(`sws_schedule_v3_${cycleId}`, JSON.stringify(allRows));
+      }
       showLeaveModal.value = false;
-      alert(`✅ บันทึกคนลาสำเร็จ\nผู้ลา: ${row.name}\nวันที่ ${newRecord.date} กะ ${shift === 'N' ? 'ดึก' : 'เช้า'}\nระบบนับเป็นยอดที่ต้องขอสแปร์ 1 อัตรา (ดูสรุปในหน้าตารางเวรรวม)`);
+      alert(`✅ บันทึกคนลาสำเร็จ\nผู้ลา: ${f.guardName}\nวันที่ ${newRecord.date} กะ${shift === 'N' ? 'ดึก' : 'เช้า'} (${cycle.name})\nระบบนับเป็นยอดที่ต้องขอสแปร์ 1 อัตรา`);
     }
 
     function cancelLeave(record) {
@@ -1056,7 +1151,7 @@ createApp({
     const nowTick = ref(Date.now());
     const spareArrivals = ref([]);
     const showSpareModal = ref(false);
-    const spareForm = ref({ date: fmtDate(new Date()), shift: 'D', type: SPARE_TYPE, code: '', name: '', note: '' });
+    const spareForm = ref({ date: fmtDate(new Date()), shift: 'D', type: SPARE_TYPE, positionNo: '', code: '', name: '', note: '' });
     const activeStaff = computed(() => permanentStaff.value.filter(s => !s.isVacant));
 
     function initSpareArrivals() {
@@ -1093,8 +1188,9 @@ createApp({
         String(b.date).localeCompare(String(a.date)) || String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
     }
 
-    function openSpareModal(date, shift) {
-      spareForm.value = { date: date || fmtDate(new Date()), shift: shift || 'D', type: SPARE_TYPE, code: '', name: '', note: '' };
+    // เปิดหน้าต่างบันทึกสแปร์ (กำหนดวันที่/กะ/จุดที่เข้าแทน ล่วงหน้าได้ เช่น กดจากรายการจุดขาด)
+    function openSpareModal(date, shift, positionNo) {
+      spareForm.value = { date: date || fmtDate(new Date()), shift: shift || 'D', type: SPARE_TYPE, positionNo: positionNo || '', code: '', name: '', note: '' };
       showSpareModal.value = true;
     }
 
@@ -1113,9 +1209,24 @@ createApp({
         alert('⚠️ กรุณาเลือกกะ (เช้า/ดึก)');
         return;
       }
+      const posNo = Number(f.positionNo);
+      if (!posNo) {
+        alert('⚠️ กรุณาเลือกจุดที่สแปร์เข้าแทน');
+        return;
+      }
+      const posRow = scheduleData.value.find(r => r.no === posNo);
+      if (!posRow) {
+        alert('⚠️ ไม่พบตำแหน่งที่เลือก');
+        return;
+      }
       const dup = spareArrivals.value.some(a => a.date === f.date && a.shift === f.shift && String(a.name).trim().toLowerCase() === name.toLowerCase());
       if (dup) {
         alert('⚠️ มีชื่อนี้บันทึกไว้ในกะนี้แล้ว');
+        return;
+      }
+      const taken = spareArrivals.value.find(a => a.date === f.date && a.shift === f.shift && Number(a.positionNo) === posNo);
+      if (taken) {
+        alert(`⚠️ จุดนี้ในกะนี้มีสแปร์ ${taken.name} เข้าแทนอยู่แล้ว`);
         return;
       }
       const rec = {
@@ -1123,6 +1234,10 @@ createApp({
         date: f.date,
         shift: f.shift,
         type: SPARE_TYPE,
+        positionNo: posNo,
+        positionText: spotText(posRow),
+        positionName: posRow.position,
+        positionPerson: posRow.isReliefPool ? 'โควตาสแปร์' : (posRow.isSpare ? 'ตำแหน่งว่าง' : posRow.name),
         code: (f.code || '').trim(),
         name,
         note: (f.note || '').trim(),
@@ -1133,7 +1248,7 @@ createApp({
       sortSpareArrivals();
       persistSpareAdd(rec);
       showSpareModal.value = false;
-      alert(`✅ บันทึกสแปร์ที่มาปฏิบัติงานแล้ว\n${name} · ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
+      alert(`✅ บันทึกสแปร์ที่มาปฏิบัติงานแล้ว\n${name} · ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}\nแทนจุด: ${rec.positionText}`);
     }
 
     function cancelSpare(rec) {
@@ -1142,12 +1257,12 @@ createApp({
       persistSpareRemove(rec);
     }
 
-    // จำนวนสแปร์ที่มาจริง แยกตาม วันที่|กะ
+    // สแปร์ที่มาจริง แยกตาม วันที่|กะ
     const arrivalsIndex = computed(() => {
       const m = {};
       spareArrivals.value.forEach(a => {
         const k = `${a.date}|${a.shift}`;
-        m[k] = (m[k] || 0) + 1;
+        (m[k] = m[k] || []).push(a);
       });
       return m;
     });
@@ -1174,31 +1289,53 @@ createApp({
       return new Date(y, m - 1, d + (e.nextDay ? 1 : 0), e.h, e.m).getTime();
     }
 
-    // none = ไม่ต้องขอ, ok = สแปร์มาครบ, pending = กะยังไม่จบ/ยังรอ, short = กะจบแล้วแต่ยังไม่ครบ (จุดขาด)
-    function spareStatus(requested, arrived, dateString, type) {
+    // none = ไม่ต้องขอ, ok = ทุกจุดมีสแปร์แล้ว, pending = กะยังไม่จบ/ยังรอ, short = กะจบแล้วแต่ยังมีจุดไม่มีสแปร์ (จุดขาด)
+    function spareStatus(requested, missing, dateString, type) {
       if (requested === 0) return 'none';
-      if (arrived >= requested) return 'ok';
+      if (missing === 0) return 'ok';
       return nowTick.value >= shiftEndMs(dateString, type) ? 'short' : 'pending';
     }
 
+    // ข้อความบอกจุด เช่น "No.7 นายอนุสรณ์ ศิริวัฒนกุล (Supervisor)" / "No.21 Guard (ตำแหน่งว่าง)"
+    function spotText(row) {
+      if (row.isReliefPool) return `No.${row.no} Spare Relief Pool (โควตาสแปร์)`;
+      if (row.isSpare) return `No.${row.no} ${row.position} (ตำแหน่งว่าง)`;
+      return `No.${row.no} ${row.name} (${row.position})`;
+    }
+
     // สรุปยอดขอสแปร์ของวันหนึ่งๆ (rows = ตารางเวรของรอบที่วันนั้นสังกัด, dayIdx = ลำดับวันในรอบ)
+    //   จุดที่ต้องขอสแปร์ = ตำแหน่งว่าง + แถว 40 (โควตาสแปร์) ที่มีกะทำงาน + คนประจำที่แจ้งลา
+    //   จุดที่มีสแปร์เข้าแทนแล้ว = ดูจาก "จุดที่เข้าแทน" ที่บันทึกไว้ / สแปร์เดิมที่ไม่ได้ระบุจุด นับลดยอดค้างทีละจุด
     function spareStatsFor(rows, dayIdx, date, dateString) {
-      const out = { D: { vacant: 0, leave: 0 }, N: { vacant: 0, leave: 0 } };
+      const spots = { D: [], N: [] };
       rows.forEach(r => {
         const s = r.shifts[dayIdx];
-        if (r.isSpare) { // ตำแหน่งว่าง (รอสแปร์) และแถว 40 (โควตาสแปร์): กะทำงานทุกกะนับเป็นยอดขอ
+        if (r.isSpare) {
           const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-          if (t) out[t].vacant++;
+          if (t) spots[t].push({ no: r.no, kind: r.isReliefPool ? 'pool' : 'vacant', text: spotText(r) });
           return;
         }
-        if (s === 'L') out[leaveShiftOf(r, date, dateString)].leave++; // คนประจำแจ้งลา
+        if (s === 'L') spots[leaveShiftOf(r, date, dateString)].push({ no: r.no, kind: 'leave', text: spotText(r) });
       });
+      const out = {};
       ['D', 'N'].forEach(t => {
-        const o = out[t];
-        o.requested = o.vacant + o.leave;
-        o.arrived = arrivalsIndex.value[`${dateString}|${t}`] || 0;
-        o.missing = Math.max(0, o.requested - o.arrived);
-        o.status = spareStatus(o.requested, o.arrived, dateString, t);
+        const arrs = arrivalsIndex.value[`${dateString}|${t}`] || [];
+        const hasPos = a => a.positionNo !== undefined && a.positionNo !== null && a.positionNo !== '';
+        const coveredNos = new Set(arrs.filter(hasPos).map(a => Number(a.positionNo)));
+        const unassigned = arrs.filter(a => !hasPos(a)).length;
+        let uncovered = spots[t].filter(sp => !coveredNos.has(sp.no));
+        uncovered = uncovered.slice(Math.min(unassigned, uncovered.length));
+        const requested = spots[t].length;
+        out[t] = {
+          vacant: spots[t].filter(sp => sp.kind !== 'leave').length,
+          leave: spots[t].filter(sp => sp.kind === 'leave').length,
+          requested,
+          arrived: arrs.length,
+          spots: spots[t],
+          uncovered,
+          missing: uncovered.length,
+          status: spareStatus(requested, uncovered.length, dateString, t)
+        };
       });
       return out;
     }
@@ -1217,7 +1354,23 @@ createApp({
       return 'bg-amber-100 text-amber-800 font-semibold';
     }
 
-    // สรุปทุกวันในรอบที่เปิดอยู่ (ใช้ในหน้าตารางเวรรวม)
+    // ตัวเลือก "เข้าแทนจุดไหน" ของฟอร์มบันทึกสแปร์: จุดที่ยังไม่มีสแปร์ในวัน/กะที่เลือกขึ้นก่อน ตามด้วยตำแหน่งอื่นๆ
+    const spareSpotOptions = computed(() => {
+      const f = spareForm.value;
+      const d = f.date ? parseDate(f.date) : null;
+      const ctx = d && !isNaN(d.getTime()) ? getCycleContext(cycleIdForDate(d)) : null;
+      const rows = ctx ? ctx.rows : scheduleData.value;
+      let needed = [];
+      if (ctx) {
+        const idx = utcDayNum(d.getFullYear(), d.getMonth(), d.getDate()) - ctx.startDayNum;
+        needed = spareStatsFor(rows, idx, d, f.date)[f.shift === 'N' ? 'N' : 'D'].uncovered.map(sp => ({ no: sp.no, text: sp.text }));
+      }
+      const nos = new Set(needed.map(x => x.no));
+      const others = rows.filter(r => !nos.has(r.no)).map(r => ({ no: r.no, text: spotText(r) }));
+      return { needed, others };
+    });
+
+    // สรุปทุกวันในรอบที่เปิดอยู่ (ใช้ในหน้าสรุปการขอสแปร์)
     const spareDayStats = computed(() =>
       currentCycleDays.value.map((day, i) => spareStatsFor(scheduleData.value, i, day.date, day.dateString)));
 
@@ -1243,7 +1396,7 @@ createApp({
         ['D', 'N'].forEach(k => {
           const o = st[k];
           if (o.status === 'short' || o.status === 'pending') {
-            pts.push({ dateString: day.dateString, dayName: day.dayName, shift: k, requested: o.requested, arrived: o.arrived, missing: o.missing, status: o.status });
+            pts.push({ dateString: day.dateString, dayName: day.dayName, shift: k, requested: o.requested, arrived: o.arrived, missing: o.missing, status: o.status, uncovered: o.uncovered });
           }
         });
       });
@@ -1355,7 +1508,7 @@ createApp({
       const arrivals = spareArrivals.value.filter(r => inRange(r.date)).map(r => ({
         id: r.id, date: r.date, shift: r.shift, replaceType: r.type,
         replacementCode: r.code, replacementName: r.name,
-        position: 'ไม่ระบุ', guardName: 'บ.ต้นสังกัดจัด', loggedBy: r.loggedBy
+        position: r.positionName || 'ไม่ระบุ', guardName: r.positionPerson || 'บ.ต้นสังกัดจัด', loggedBy: r.loggedBy
       }));
       // ข้อมูลเก่าที่เคยบันทึกชื่อคนแทนไว้กับรายการลา
       const legacy = leaveRecords.value.filter(r => r.replacementName && inRange(r.date));
@@ -1472,8 +1625,8 @@ createApp({
       schedLeaveInRange.value.forEach(r => lines.push([r.date, r.shift, r.guardCode || '-', r.guardName, r.position, r.reason, r.loggedBy]));
       lines.push([]);
       lines.push(['สแปร์ที่มาปฏิบัติงาน']);
-      lines.push(['วันที่', 'กะ', 'รหัส', 'ชื่อ-สกุล', 'หมายเหตุ', 'ผู้บันทึก']);
-      schedSpareInRange.value.forEach(r => lines.push([r.date, r.shift, r.code || '-', r.name, r.note || '', r.loggedBy]));
+      lines.push(['วันที่', 'กะ', 'แทนจุด', 'รหัส', 'ชื่อ-สกุล', 'หมายเหตุ', 'ผู้บันทึก']);
+      schedSpareInRange.value.forEach(r => lines.push([r.date, r.shift, r.positionText || '-', r.code || '-', r.name, r.note || '', r.loggedBy]));
       return lines.map(l => l.map(csvCell).join(',')).join('\r\n');
     }
 
@@ -1833,6 +1986,11 @@ createApp({
       loadCyclesForDays(schedRangeDays.value);
     });
 
+    // ฟอร์มบันทึกสแปร์: เลือกวันที่ในรอบอื่น -> โหลดตารางรอบนั้นมาเพื่อแสดงจุดที่ต้องการสแปร์
+    watch([() => spareForm.value.date, showSpareModal], () => {
+      if (showSpareModal.value && spareForm.value.date) loadCyclesForDays([{ date: parseDate(spareForm.value.date) }]);
+    });
+
     return {
       currentTab,
       selectTab,
@@ -1882,6 +2040,13 @@ createApp({
       submitSpare,
       cancelSpare,
       spareDayStats,
+      spareSpotOptions,
+      pinUnlocked,
+      pinInput,
+      pinError,
+      pinRemember,
+      submitPin,
+      lockApp,
       spareTotals,
       spareShortagePoints,
       spareStatusText,
