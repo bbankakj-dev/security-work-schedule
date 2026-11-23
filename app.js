@@ -1860,19 +1860,13 @@ createApp({
     const signRangeDays = computed(() => signRange.value.days);
     const signRangeTruncated = computed(() => signRange.value.truncated);
 
-    // รหัสจุดทำงาน: ใช้ postCode ของตำแหน่งถ้ามีใน permanentStaff, ถ้าไม่มีใช้เลข No. ของตำแหน่ง (เช่น 07)
-    function postCodeOf(no) {
-      const staff = permanentStaff.value.find(s => s.no === no);
-      if (staff && staff.postCode) return staff.postCode;
-      return String(no).padStart(2, '0');
-    }
-
     const signSheets = computed(() => {
       return signRangeDays.value.map(day => {
         const date = day.date;
         const ctx = getCycleContext(cycleIdForDate(date));
         const out = {
           dateString: day.dateString, D: [], N: [],
+          notes: { D: [], N: [] },
           dayFullName: SIGN_DAY_FULL_TH[date.getDay()],
           dateThai: `${date.getDate()} ${SIGN_MONTH_TH[date.getMonth()]} ${date.getFullYear() + 543}`,
           holidayName: isPublicHoliday(day.dateString) ? (getHolidayName(day.dateString) || 'วันหยุดนักขัตฤกษ์') : ''
@@ -1892,11 +1886,20 @@ createApp({
             code: blank ? '' : (r.code || ''),
             name: blank ? '' : (r.name || ''),
             position: r.isReliefPool ? 'Spare Relief Pool' : r.position,
-            post: postCodeOf(r.no)
+            kind: s === 'L' ? 'leave' : (r.isReliefPool ? 'pool' : (r.isSpare ? 'vacant' : 'regular')),
+            leaveName: s === 'L' ? (r.name || '') : ''
           });
         });
-        out.D.sort((x, y) => x.no - y.no);
-        out.N.sort((x, y) => x.no - y.no);
+        ['D', 'N'].forEach(t => {
+          out[t].sort((x, y) => x.no - y.no);
+          // สรุปใต้ตาราง: ลำดับ = ลำดับในตารางของกะนั้น
+          out[t].forEach((r, i) => {
+            const n = i + 1;
+            if (r.kind === 'leave') out.notes[t].push(`รปภ.ประจำ ${r.leaveName} ตำแหน่ง ${r.position} ลำดับ ${n} (ลา)`);
+            else if (r.kind === 'vacant') out.notes[t].push(`ตำแหน่ง ${r.position} ลำดับ ${n} (ว่าง)`);
+            else if (r.kind === 'pool') out.notes[t].push(`โควตาสแปร์ (${r.position}) ลำดับ ${n} (ว่าง)`);
+          });
+        });
         return out;
       });
     });

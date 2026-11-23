@@ -192,17 +192,17 @@
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             👥 จัดการ รปภ.ประจำ
           </button>
-          <button @click="selectTab('schedule_print')" 
-                  :class="currentTab === 'schedule_print' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
-                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
-            📄 สรุปตารางเวรและสแปร์
-            <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
-          </button>
           <button @click="selectTab('sign_sheet')" 
                   :class="currentTab === 'sign_sheet' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             ✍️ ใบลงชื่อเข้าปฏิบัติหน้าที่
             <span v-if="!isSupervisor" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Sup/Admin</span>
+          </button>
+          <button @click="selectTab('schedule_print')" 
+                  :class="currentTab === 'schedule_print' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
+                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
+            📄 สรุปตารางเวรและสแปร์
+            <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
           </button>
           <button @click="selectTab('billing')" 
                   :class="currentTab === 'billing' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
@@ -949,7 +949,7 @@
                     <th class="p-1 border border-slate-400 w-24">รหัส</th>
                     <th class="p-1 border border-slate-400">ชื่อ - สกุล</th>
                     <th class="p-1 border border-slate-400 w-32">ตำแหน่ง</th>
-                    <th class="p-1 border border-slate-400 w-20">รหัสจุดทำงาน</th>
+                    <th class="p-1 border border-slate-400 w-20">Dailywork</th>
                     <th class="p-1 border border-slate-400 w-40">ลงชื่อเข้าปฏิบัติงาน</th>
                   </tr>
                 </thead>
@@ -962,17 +962,29 @@
                     <td class="px-1 border border-slate-400 font-mono">{{ r.code }}</td>
                     <td class="px-1 border border-slate-400 text-left font-semibold">{{ r.name }}</td>
                     <td class="px-1 border border-slate-400 text-left">{{ r.position }}</td>
-                    <td class="px-1 border border-slate-400 font-mono">{{ r.post }}</td>
+                    <td class="px-1 border border-slate-400"></td>
                     <td class="px-1 border border-slate-400"></td>
                   </tr>
                 </tbody>
               </table>
+              <div class="mt-1 text-[10.5px] leading-snug">
+                <b>สรุป{{ blk.k === 'D' ? 'กะเช้า' : 'กะดึก' }}:</b>
+                <span v-if="sh.notes[blk.k].length === 0" class="text-slate-500"> ไม่มีตำแหน่งลา / ว่างในกะนี้</span>
+                <ul v-else class="list-disc pl-5">
+                  <li v-for="(n, ni) in sh.notes[blk.k]" :key="blk.k + 'n' + ni">{{ n }}</li>
+                </ul>
+              </div>
             </div>
 
-            <div class="flex justify-end pt-2" style="break-inside: avoid;">
-              <div class="text-center text-[11px]">
-                <div class="w-56 border-b border-slate-700 h-6"></div>
-                <p class="mt-1 font-semibold">ผู้ตรวจสอบ (Supervisor)</p>
+            <div class="grid grid-cols-2 pt-3 border-t border-slate-300" style="break-inside: avoid;">
+              <div class="text-center text-[11px] pr-4">
+                <div class="mx-auto w-56 border-b border-slate-700 h-6"></div>
+                <p class="mt-1 font-semibold">ผู้ตรวจสอบ กะเช้า (Supervisor)</p>
+                <p class="text-[10px] text-slate-400">วันที่ ..... / ..... / ..........</p>
+              </div>
+              <div class="text-center text-[11px] pl-4 border-l border-slate-500">
+                <div class="mx-auto w-56 border-b border-slate-700 h-6"></div>
+                <p class="mt-1 font-semibold">ผู้ตรวจสอบ กะดึก (Supervisor)</p>
                 <p class="text-[10px] text-slate-400">วันที่ ..... / ..... / ..........</p>
               </div>
             </div>
