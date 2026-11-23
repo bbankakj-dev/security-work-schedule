@@ -53,6 +53,14 @@
                                       padding: 0 !important; border-radius: 0 !important;
                                       height: 279mm; max-height: 279mm; overflow: hidden; box-sizing: border-box; }
       #printableSignArea .sign-page:last-child { break-after: auto; }
+      /* โหมดพิมพ์ใบลงชื่อ: ซ่อนส่วนอื่นด้วย display:none (ไม่ให้เหลือพื้นที่เปล่าจนเกิดหน้าว่างหน้า 2) */
+      html, body.print-sign-mode { margin: 0 !important; min-height: 0 !important; height: auto !important; background: #fff !important; }
+      body.print-sign-mode #app { display: block !important; min-height: 0 !important; height: auto !important; max-width: none !important; overflow: visible !important; }
+      body.print-sign-mode #app > *:not(main) { display: none !important; }
+      body.print-sign-mode main { padding: 0 !important; margin: 0 !important; max-width: none !important; min-height: 0 !important; }
+      body.print-sign-mode main > section > *:not(#printableSignArea) { display: none !important; }
+      body.print-sign-mode #printableSignArea { position: static !important; }
+      body.print-sign-mode #printableSignArea > .sign-page:last-child { height: 275mm; max-height: 275mm; }
       .no-print { display: none !important; }
     }
   </style>

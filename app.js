@@ -1912,7 +1912,12 @@ createApp({
 
     function printSignSheet() {
       if (!isSupervisor.value) return;
-      window.print();
+      // ใส่คลาสพิเศษให้ body ระหว่างพิมพ์ เพื่อซ่อนส่วนอื่นของเว็บแบบ display:none (กันหน้าว่างท้ายเอกสาร)
+      const cls = 'print-sign-mode';
+      document.body.classList.add(cls);
+      const cleanup = () => { document.body.classList.remove(cls); window.removeEventListener('afterprint', cleanup); };
+      window.addEventListener('afterprint', cleanup);
+      try { window.print(); } finally { setTimeout(cleanup, 1500); }
     }
 
     // =========================================================================
