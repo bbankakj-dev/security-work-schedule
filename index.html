@@ -443,21 +443,29 @@
 
           <!-- จุดขาด / ยังรอสแปร์ -->
           <div v-if="spareShortagePoints.length" class="border border-slate-200 rounded-lg overflow-hidden">
-            <div class="bg-slate-100 text-[11px] font-bold px-2.5 py-1.5">รายการจุดขาด / ยังรอสแปร์ (สแปร์ที่มายังไม่ครบยอดขอ)</div>
+            <div class="bg-slate-100 text-[11px] font-bold px-2.5 py-1.5 flex justify-between items-center">
+              <span>รายการจุดขาด / ยังรอสแปร์ (สแปร์ที่มายังไม่ครบยอดขอ)</span>
+              <span class="text-[10px] text-slate-500 font-normal">💡 คลิกที่แถวหรือตารางด้านล่างเพื่อเน้นไฮไลต์แถบสีของวันนั้น</span>
+            </div>
             <div class="divide-y divide-slate-100 text-[11px] max-h-56 overflow-y-auto">
-              <div v-for="p in spareShortagePoints" :key="p.dateString + p.shift" class="px-2.5 py-1.5 flex flex-wrap items-center gap-2">
-                <span class="font-mono font-bold">{{ p.dateString }} ({{ p.dayName }})</span>
+              <div v-for="p in spareShortagePoints" :key="p.dateString + p.shift"
+                   @click="selectSpareDate(p.dateString)"
+                   :class="selectedSpareDate === p.dateString ? 'bg-amber-100/70 border-l-4 border-l-amber-500 font-medium' : 'hover:bg-slate-50 border-l-4 border-l-transparent'"
+                   class="px-2.5 py-1.5 flex flex-wrap items-center gap-2 cursor-pointer transition">
+                <span class="font-mono font-bold" :class="selectedSpareDate === p.dateString ? 'text-amber-950 font-black' : ''">
+                  {{ p.dateString }} ({{ p.dayName }})
+                </span>
                 <span>{{ p.shift === 'D' ? '☀️ กะเช้า' : '🌙 กะดึก' }}</span>
                 <span class="text-slate-600">ขอ {{ p.requested }} · มา {{ p.arrived }}</span>
-                <span class="px-1.5 py-0.5 rounded" :class="spareStatusClass(p)">{{ spareStatusText(p) }}</span>
-                <button v-if="isAdmin || isSupervisor" @click="openSpareModal(p.dateString, p.shift)"
-                        class="ml-auto bg-purple-100 hover:bg-purple-200 text-purple-800 px-2 py-0.5 rounded font-semibold">➕ บันทึกสแปร์ที่มา</button>
-                <div class="w-full flex flex-wrap gap-1.5">
+                <span class="px-1.5 py-0.5 rounded shadow-xs" :class="spareStatusClass(p)">{{ spareStatusText(p) }}</span>
+                <button v-if="isAdmin || isSupervisor" @click.stop="openSpareModal(p.dateString, p.shift)"
+                        class="ml-auto bg-purple-100 hover:bg-purple-200 text-purple-800 px-2 py-0.5 rounded font-semibold transition">➕ บันทึกสแปร์ที่มา</button>
+                <div class="w-full flex flex-wrap gap-1.5 mt-0.5">
                   <span v-for="sp in p.uncovered" :key="sp.no"
                         class="inline-flex items-center gap-1 bg-red-50 border border-red-200 text-red-800 rounded px-1.5 py-0.5 text-[10px]">
                     จุดที่ยังไม่มีสแปร์: {{ sp.text }}
-                    <button v-if="isAdmin || isSupervisor" @click="openSpareModal(p.dateString, p.shift, sp.no)"
-                            class="text-purple-700 font-bold" title="บันทึกสแปร์ที่เข้าแทนจุดนี้">＋</button>
+                    <button v-if="isAdmin || isSupervisor" @click.stop="openSpareModal(p.dateString, p.shift, sp.no)"
+                            class="text-purple-700 font-bold hover:scale-125 transition" title="บันทึกสแปร์ที่เข้าแทนจุดนี้">＋</button>
                   </span>
                 </div>
               </div>
@@ -468,11 +476,11 @@
           </div>
 
           <!-- สรุปรายวัน -->
-          <div class="overflow-auto border border-slate-200 rounded-lg" style="max-height: 55vh;">
+          <div class="overflow-auto border border-slate-200 rounded-lg shadow-sm" style="max-height: 55vh;">
             <table class="w-full text-[11px] text-center border-collapse">
-              <thead class="bg-slate-900 text-white sticky top-0 z-10">
+              <thead class="bg-slate-900 text-white sticky top-0 z-10 shadow">
                 <tr>
-                  <th rowspan="2" class="p-1.5 text-left bg-slate-900">วันที่</th>
+                  <th rowspan="2" class="p-1.5 text-left bg-slate-900">วันที่ (คลิกเพื่อเน้นสี)</th>
                   <th colspan="3" class="p-1 bg-amber-700">☀️ กะเช้า</th>
                   <th colspan="3" class="p-1 bg-indigo-800">🌙 กะดึก</th>
                 </tr>
@@ -481,26 +489,38 @@
                   <th class="p-1 font-medium">ขอสแปร์</th><th class="p-1 font-medium">มา</th><th class="p-1 font-medium">สถานะ</th>
                 </tr>
               </thead>
-              <tbody class="divide-y divide-slate-100">
+              <tbody class="divide-y divide-slate-200">
                 <tr v-for="(day, dIdx) in currentCycleDays" :key="'sp-' + dIdx"
-                    :class="(spareDayStats[dIdx].D.status === 'short' || spareDayStats[dIdx].N.status === 'short') ? 'bg-red-50/70' : (isWeekend(day.date) ? 'bg-slate-50' : '')">
-                  <td class="p-1 text-left whitespace-nowrap">
+                    @click="selectSpareDate(day.dateString)"
+                    class="cursor-pointer transition select-none"
+                    :class="[
+                      selectedSpareDate === day.dateString
+                        ? '!bg-amber-200/90 font-semibold ring-2 ring-inset ring-amber-500'
+                        : ((spareDayStats[dIdx].D.status === 'short' || spareDayStats[dIdx].N.status === 'short')
+                            ? 'bg-red-50/80 hover:bg-red-100/70'
+                            : (isWeekend(day.date)
+                                ? 'bg-amber-50/30 hover:bg-amber-100/40'
+                                : (dIdx % 2 === 1 ? 'bg-slate-50 hover:bg-slate-100' : 'bg-white hover:bg-slate-100'))
+                          )
+                    ]">
+                  <td class="p-1.5 text-left whitespace-nowrap border-r border-slate-200">
                     <span class="font-mono font-bold">{{ day.dateString.slice(8) }}/{{ day.dateString.slice(5, 7) }}</span>
-                    <span class="ml-1" :class="isWeekend(day.date) ? 'text-amber-600' : 'text-slate-400'">{{ day.dayName }}</span>
-                    <span v-if="day.isHoliday" class="ml-1 text-[9px] bg-purple-500 text-white px-0.5 rounded">PH</span>
+                    <span class="ml-1 px-1 py-0.5 rounded text-[10px]" :class="isWeekend(day.date) ? 'bg-amber-100 text-amber-800 font-bold' : 'text-slate-500'">{{ day.dayName }}</span>
+                    <span v-if="day.isHoliday" class="ml-1 text-[9px] bg-purple-600 text-white font-bold px-1 py-0.2 rounded">PH</span>
+                    <span v-if="selectedSpareDate === day.dateString" class="ml-1 text-[10px] text-amber-800">👉</span>
                   </td>
-                  <td class="p-1">
+                  <td class="p-1.5">
                     <b>{{ spareDayStats[dIdx].D.requested }}</b>
-                    <span v-if="spareDayStats[dIdx].D.requested" class="text-slate-400 text-[10px]"> (ว่าง/โควตา {{ spareDayStats[dIdx].D.vacant }}+ลา {{ spareDayStats[dIdx].D.leave }})</span>
+                    <span v-if="spareDayStats[dIdx].D.requested" class="text-slate-500 text-[10px]"> (ว่าง/โควตา {{ spareDayStats[dIdx].D.vacant }}+ลา {{ spareDayStats[dIdx].D.leave }})</span>
                   </td>
-                  <td class="p-1">{{ spareDayStats[dIdx].D.arrived }}</td>
-                  <td class="p-1"><span class="px-1.5 py-0.5 rounded whitespace-nowrap" :class="spareStatusClass(spareDayStats[dIdx].D)">{{ spareStatusText(spareDayStats[dIdx].D) }}</span></td>
-                  <td class="p-1 border-l border-slate-200">
+                  <td class="p-1.5 font-bold">{{ spareDayStats[dIdx].D.arrived }}</td>
+                  <td class="p-1.5"><span class="px-2 py-0.5 rounded whitespace-nowrap shadow-xs" :class="spareStatusClass(spareDayStats[dIdx].D)">{{ spareStatusText(spareDayStats[dIdx].D) }}</span></td>
+                  <td class="p-1.5 border-l border-slate-200">
                     <b>{{ spareDayStats[dIdx].N.requested }}</b>
-                    <span v-if="spareDayStats[dIdx].N.requested" class="text-slate-400 text-[10px]"> (ว่าง/โควตา {{ spareDayStats[dIdx].N.vacant }}+ลา {{ spareDayStats[dIdx].N.leave }})</span>
+                    <span v-if="spareDayStats[dIdx].N.requested" class="text-slate-500 text-[10px]"> (ว่าง/โควตา {{ spareDayStats[dIdx].N.vacant }}+ลา {{ spareDayStats[dIdx].N.leave }})</span>
                   </td>
-                  <td class="p-1">{{ spareDayStats[dIdx].N.arrived }}</td>
-                  <td class="p-1"><span class="px-1.5 py-0.5 rounded whitespace-nowrap" :class="spareStatusClass(spareDayStats[dIdx].N)">{{ spareStatusText(spareDayStats[dIdx].N) }}</span></td>
+                  <td class="p-1.5 font-bold">{{ spareDayStats[dIdx].N.arrived }}</td>
+                  <td class="p-1.5"><span class="px-2 py-0.5 rounded whitespace-nowrap shadow-xs" :class="spareStatusClass(spareDayStats[dIdx].N)">{{ spareStatusText(spareDayStats[dIdx].N) }}</span></td>
                 </tr>
               </tbody>
               <tfoot class="bg-slate-100 font-bold sticky bottom-0">

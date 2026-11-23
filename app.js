@@ -1576,6 +1576,12 @@ createApp({
       return pts;
     });
 
+    // วันที่เลือกดูในแท็บสรุปการขอสแปร์ (เพื่อให้ไฮไลต์แถว/การ์ดได้ชัดเจน)
+    const selectedSpareDate = ref(null);
+    function selectSpareDate(dateStr) {
+      selectedSpareDate.value = selectedSpareDate.value === dateStr ? null : dateStr;
+    }
+
     // =========================================================================
     // 8 & 9. BILLING SUMMARY & EXPORT (Admin Only & 4 Signature Blocks)
     // =========================================================================
@@ -2240,6 +2246,8 @@ createApp({
       lockApp,
       spareTotals,
       spareShortagePoints,
+      selectedSpareDate,
+      selectSpareDate,
       spareStatusText,
       spareStatusClass,
       schedStartDate,
