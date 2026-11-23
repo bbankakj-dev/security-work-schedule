@@ -49,8 +49,9 @@
       #printableSignArea, #printableSignArea * { visibility: visible; }
       #printableSignArea { position: absolute; left: 0; top: 0; width: 100%; page: signpage;
                            -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      #printableSignArea .sign-page { break-after: page; border: none !important; box-shadow: none !important;
-                                      padding: 0 !important; border-radius: 0 !important; }
+      #printableSignArea .sign-page { break-after: page; break-inside: avoid; border: none !important; box-shadow: none !important;
+                                      padding: 0 !important; border-radius: 0 !important;
+                                      height: 279mm; max-height: 279mm; overflow: hidden; box-sizing: border-box; }
       #printableSignArea .sign-page:last-child { break-after: auto; }
       .no-print { display: none !important; }
     }
@@ -929,35 +930,35 @@
 
         <div id="printableSignArea" class="space-y-4">
           <div v-for="sh in signSheets" :key="sh.dateString"
-               class="sign-page bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 text-slate-900 space-y-3">
-            <div class="text-center border-b border-slate-300 pb-2">
-              <h1 class="text-base font-bold">CONTINENTAL TYRES (THAILAND) CO., LTD.</h1>
-              <h2 class="text-sm font-semibold mt-0.5">ใบลงชื่อการปฏิบัติงาน เจ้าหน้าที่รักษาความปลอดภัย</h2>
-              <p class="text-xs mt-1">ประจำวัน<b>{{ sh.dayFullName }}</b> ที่ <b>{{ sh.dateThai }}</b>
+               class="sign-page bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-slate-200 text-slate-900 space-y-2">
+            <div class="text-center border-b border-slate-300 pb-1">
+              <h1 class="text-[13px] font-bold leading-tight">CONTINENTAL TYRES (THAILAND) CO., LTD.</h1>
+              <h2 class="text-[11px] font-semibold leading-tight">ใบลงชื่อการปฏิบัติงาน เจ้าหน้าที่รักษาความปลอดภัย</h2>
+              <p class="text-[10.5px] leading-tight">ประจำวัน<b>{{ sh.dayFullName }}</b> ที่ <b>{{ sh.dateThai }}</b>
                 <span v-if="sh.holidayName" class="text-purple-700 font-semibold"> ({{ sh.holidayName }})</span>
               </p>
             </div>
 
             <div v-for="blk in [{ k: 'D', label: '☀️ กะเช้า (D)', time: '06:30 - 18:30', head: 'bg-amber-100' }, { k: 'N', label: '🌙 กะดึก (N)', time: '18:30 - 06:30 (ของวันถัดไป)', head: 'bg-indigo-100' }]" :key="blk.k">
-              <h3 class="text-xs font-bold mb-1">{{ blk.label }} เวลา {{ blk.time }}
+              <h3 class="text-[11px] font-bold mb-0.5 leading-tight">{{ blk.label }} เวลา {{ blk.time }}
                 <span class="font-normal text-slate-500">· {{ sh[blk.k].length }} จุด</span>
               </h3>
               <table class="w-full text-[11px] text-center border border-slate-400 border-collapse">
                 <thead class="font-bold" :class="blk.head">
                   <tr>
-                    <th class="p-1 border border-slate-400 w-10">ลำดับ</th>
-                    <th class="p-1 border border-slate-400 w-24">รหัส</th>
-                    <th class="p-1 border border-slate-400">ชื่อ - สกุล</th>
-                    <th class="p-1 border border-slate-400 w-32">ตำแหน่ง</th>
-                    <th class="p-1 border border-slate-400 w-20">Dailywork</th>
-                    <th class="p-1 border border-slate-400 w-40">ลงชื่อเข้าปฏิบัติงาน</th>
+                    <th class="py-0.5 px-1 border border-slate-400 w-10">ลำดับ</th>
+                    <th class="py-0.5 px-1 border border-slate-400 w-24">รหัส</th>
+                    <th class="py-0.5 px-1 border border-slate-400">ชื่อ - สกุล</th>
+                    <th class="py-0.5 px-1 border border-slate-400 w-32">ตำแหน่ง</th>
+                    <th class="py-0.5 px-1 border border-slate-400 w-20">Dailywork</th>
+                    <th class="py-0.5 px-1 border border-slate-400 w-40">ลงชื่อเข้าปฏิบัติงาน</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-if="sh[blk.k].length === 0">
                     <td colspan="6" class="p-2 border border-slate-400 text-slate-400">ไม่มีรายการในกะนี้</td>
                   </tr>
-                  <tr v-for="(r, i) in sh[blk.k]" :key="blk.k + r.no" style="height: 6.2mm;">
+                  <tr v-for="(r, i) in sh[blk.k]" :key="blk.k + r.no" :style="{ height: sh.rowMm + 'mm', fontSize: sh.fontPx + 'px', lineHeight: 1.15 }">
                     <td class="px-1 border border-slate-400">{{ i + 1 }}</td>
                     <td class="px-1 border border-slate-400 font-mono">{{ r.code }}</td>
                     <td class="px-1 border border-slate-400 text-left font-semibold">{{ r.name }}</td>
@@ -967,23 +968,23 @@
                   </tr>
                 </tbody>
               </table>
-              <div class="mt-1 text-[10.5px] leading-snug">
+              <div class="mt-0.5 text-[9.5px] leading-tight">
                 <b>สรุป{{ blk.k === 'D' ? 'กะเช้า' : 'กะดึก' }}:</b>
                 <span v-if="sh.notes[blk.k].length === 0" class="text-slate-500"> ไม่มีตำแหน่งลา / ว่างในกะนี้</span>
-                <ul v-else class="list-disc pl-5">
-                  <li v-for="(n, ni) in sh.notes[blk.k]" :key="blk.k + 'n' + ni">{{ n }}</li>
+                <ul v-else class="list-disc pl-4" style="column-count: 2; column-gap: 14px;">
+                  <li v-for="(n, ni) in sh.notes[blk.k]" :key="blk.k + 'n' + ni" style="break-inside: avoid;">{{ n }}</li>
                 </ul>
               </div>
             </div>
 
-            <div class="grid grid-cols-2 pt-3 border-t border-slate-300" style="break-inside: avoid;">
+            <div class="grid grid-cols-2 pt-2 border-t border-slate-300" style="break-inside: avoid;">
               <div class="text-center text-[11px] pr-4">
-                <div class="mx-auto w-56 border-b border-slate-700 h-6"></div>
+                <div class="mx-auto w-56 border-b border-slate-700 h-5"></div>
                 <p class="mt-1 font-semibold">ผู้ตรวจสอบ กะเช้า (Supervisor)</p>
                 <p class="text-[10px] text-slate-400">วันที่ ..... / ..... / ..........</p>
               </div>
               <div class="text-center text-[11px] pl-4 border-l border-slate-500">
-                <div class="mx-auto w-56 border-b border-slate-700 h-6"></div>
+                <div class="mx-auto w-56 border-b border-slate-700 h-5"></div>
                 <p class="mt-1 font-semibold">ผู้ตรวจสอบ กะดึก (Supervisor)</p>
                 <p class="text-[10px] text-slate-400">วันที่ ..... / ..... / ..........</p>
               </div>

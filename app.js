@@ -1900,6 +1900,12 @@ createApp({
             else if (r.kind === 'pool') out.notes[t].push(`โควตาสแปร์ (${r.position}) ลำดับ ${n} (ว่าง)`);
           });
         });
+        // ปรับความสูงแถวอัตโนมัติให้พอดี 1 หน้า A4 (พื้นที่ใช้ได้ ~279mm): แถวเยอะ / รายการลายาว -> แถวเตี้ยลง + ตัวอักษรเล็กลง
+        const noteMm = t => (out.notes[t].length ? 4 + Math.ceil(out.notes[t].length / 2) * 7.5 : 4);
+        const fixedMm = 14 + 2 * 12 + 2 * 3 + 20 + noteMm('D') + noteMm('N') + 12; // หัวกระดาษ + หัวตาราง + ลายเซ็น + สรุป + กันเผื่อ
+        const rows = Math.max(1, out.D.length + out.N.length);
+        out.rowMm = Math.round(Math.min(6.2, Math.max(3.6, (279 - fixedMm) / rows)) * 100) / 100;
+        out.fontPx = out.rowMm >= 5.4 ? 11 : (out.rowMm >= 4.6 ? 10 : 9);
         return out;
       });
     });
