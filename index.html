@@ -311,28 +311,38 @@
               <!-- Table Body -->
               <tbody class="divide-y divide-slate-100">
                 <tr v-for="(guard, gIdx) in scheduleData" :key="guard.id" 
-                    class="hover:bg-amber-50/50 transition group"
-                    :class="{'bg-slate-50/70': guard.isSpare}">
+                    @click="toggleSelectGuard(guard.id)"
+                    class="transition group cursor-pointer"
+                    :class="[
+                      selectedGuardId === guard.id 
+                        ? '!bg-amber-100 font-medium ring-2 ring-inset ring-amber-500' 
+                        : (guard.isSpare ? 'bg-slate-50/70 hover:bg-amber-50/70' : 'hover:bg-amber-50/70')
+                    ]">
                   
                   <!-- Sticky Column 1: No. -->
-                  <td class="py-1 px-2 text-center text-slate-500 font-medium bg-white group-hover:bg-amber-50 sticky-col-1">
+                  <td class="py-1 px-2 text-center text-slate-500 font-medium sticky-col-1 transition"
+                      :class="selectedGuardId === guard.id ? '!bg-amber-200 !text-amber-950 font-black' : 'bg-white group-hover:bg-amber-50'">
                     {{ guard.no }}
                   </td>
                   
                   <!-- Sticky Column 2: Position -->
-                  <td class="py-1 px-2 font-medium text-slate-700 whitespace-nowrap bg-white group-hover:bg-amber-50">
+                  <td class="py-1 px-2 font-medium text-slate-700 whitespace-nowrap transition"
+                      :class="selectedGuardId === guard.id ? '!bg-amber-100 !text-amber-950 font-bold' : 'bg-white group-hover:bg-amber-50'">
                     {{ guard.position }}
                     <span v-if="guard.isSpare" class="ml-1 text-[9px] bg-red-100 text-red-700 px-1 py-0.2 rounded font-bold">รอสแปร์</span>
                   </td>
                   
                   <!-- Sticky Column 3: Code -->
-                  <td class="py-1 px-2 font-mono text-slate-500 text-[11px] whitespace-nowrap bg-white group-hover:bg-amber-50">
+                  <td class="py-1 px-2 font-mono text-slate-500 text-[11px] whitespace-nowrap transition"
+                      :class="selectedGuardId === guard.id ? '!bg-amber-100 !text-slate-800 font-bold' : 'bg-white group-hover:bg-amber-50'">
                     {{ guard.code || '-' }}
                   </td>
                   
                   <!-- Sticky Column 4: Name -->
-                  <td class="py-1 px-2 font-semibold text-slate-900 bg-white group-hover:bg-amber-50 sticky-col-4">
+                  <td class="py-1 px-2 font-semibold text-slate-900 sticky-col-4 transition"
+                      :class="selectedGuardId === guard.id ? '!bg-amber-200 !text-amber-950 font-black' : 'bg-white group-hover:bg-amber-50'">
                     {{ guard.name }}
+                    <span v-if="selectedGuardId === guard.id" class="ml-1 text-[10px] text-amber-800">👉</span>
                     <span v-if="guard.replacementName" class="block text-[9px] text-amber-700 font-normal" :title="guard.replacementName">
                       ↳ แทน: {{ guard.replacementName }}
                     </span>
@@ -340,11 +350,12 @@
 
                   <!-- Day Shift Cells -->
                   <td v-for="(shift, sIdx) in guard.shifts" :key="sIdx" 
-                      @click="isAdmin || isSupervisor ? editShift(guard, sIdx) : toggleSelectDate(currentCycleDays[sIdx].dateString)"
+                      @click.stop="isAdmin || isSupervisor ? editShift(guard, sIdx) : toggleSelectDate(currentCycleDays[sIdx].dateString)"
                       class="py-0.5 px-0.5 text-center font-bold border-l border-slate-100 transition text-[11px]"
                       :class="[
                         getShiftStyle(shift, selectedDateStr === currentCycleDays[sIdx].dateString),
                         selectedDateStr === currentCycleDays[sIdx].dateString ? 'ring-2 ring-amber-400 z-10' : '',
+                        selectedGuardId === guard.id && selectedDateStr === currentCycleDays[sIdx].dateString ? '!bg-amber-400 !text-slate-950 !ring-2 !ring-amber-600 scale-105 z-20' : '',
                         (isAdmin || isSupervisor) ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : 'cursor-pointer'
                       ]"
                       :title="(isAdmin || isSupervisor) ? 'คลิกเพื่อสลับกะ (D -> N -> H -> PH -> L)' : 'คลิกเพื่อเน้นทั้งคอลัมน์ของวันนี้'">
@@ -352,11 +363,16 @@
                   </td>
 
                   <!-- Row Summary Columns -->
-                  <td class="py-1 px-1.5 text-center font-bold text-amber-700 bg-amber-50/40">{{ countShifts(guard, 'D') }}</td>
-                  <td class="py-1 px-1.5 text-center font-bold text-indigo-700 bg-indigo-50/40">{{ countShifts(guard, 'N') }}</td>
-                  <td class="py-1 px-1.5 text-center font-bold text-slate-800 bg-slate-50">{{ countShifts(guard, 'D') + countShifts(guard, 'N') + countShifts(guard, 'PH') }}</td>
-                  <td class="py-1 px-1.5 text-center font-bold text-slate-500 bg-slate-50">{{ countShifts(guard, 'H') }}</td>
-                  <td class="py-1 px-1.5 text-center">
+                  <td class="py-1 px-1.5 text-center font-bold"
+                      :class="selectedGuardId === guard.id ? 'bg-amber-200 text-amber-950 font-black' : 'text-amber-700 bg-amber-50/40'">{{ countShifts(guard, 'D') }}</td>
+                  <td class="py-1 px-1.5 text-center font-bold"
+                      :class="selectedGuardId === guard.id ? 'bg-indigo-100 text-indigo-950 font-black' : 'text-indigo-700 bg-indigo-50/40'">{{ countShifts(guard, 'N') }}</td>
+                  <td class="py-1 px-1.5 text-center font-bold"
+                      :class="selectedGuardId === guard.id ? 'bg-amber-100 text-slate-950 font-black' : 'text-slate-800 bg-slate-50'">{{ countShifts(guard, 'D') + countShifts(guard, 'N') + countShifts(guard, 'PH') }}</td>
+                  <td class="py-1 px-1.5 text-center font-bold"
+                      :class="selectedGuardId === guard.id ? 'bg-amber-100 text-slate-700 font-bold' : 'text-slate-500 bg-slate-50'">{{ countShifts(guard, 'H') }}</td>
+                  <td class="py-1 px-1.5 text-center"
+                      :class="selectedGuardId === guard.id ? 'bg-amber-100' : ''">
                     <span class="px-1.5 py-0.5 rounded text-[10px] font-bold" 
                           :title="'ชั่วโมงสูงสุดต่อสัปดาห์: ' + weeklyHoursStats(guard).maxWeek + ' ชม. (เกณฑ์ไม่เกิน ' + gddlMaxWeekHours + ')'"
                           :class="checkGDDL(guard) ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'">

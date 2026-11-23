@@ -1587,6 +1587,12 @@ createApp({
       toggleSelectDate(dateStr);
     }
 
+    // แถว รปภ. ที่เลือกคลิกดูในแท็บตารางเวรรวม (ไฮไลต์แนวนอนทั้งแถวค้างไว้)
+    const selectedGuardId = ref(null);
+    function toggleSelectGuard(id) {
+      selectedGuardId.value = selectedGuardId.value === id ? null : id;
+    }
+
     // =========================================================================
     // 8 & 9. BILLING SUMMARY & EXPORT (Admin Only & 4 Signature Blocks)
     // =========================================================================
@@ -2263,6 +2269,8 @@ createApp({
       spareShortagePoints,
       selectedDateStr,
       toggleSelectDate,
+      selectedGuardId,
+      toggleSelectGuard,
       selectedSpareDate,
       selectSpareDate,
       spareStatusText,
