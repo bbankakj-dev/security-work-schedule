@@ -1576,10 +1576,15 @@ createApp({
       return pts;
     });
 
-    // วันที่เลือกดูในแท็บสรุปการขอสแปร์ (เพื่อให้ไฮไลต์แถว/การ์ดได้ชัดเจน)
-    const selectedSpareDate = ref(null);
+    // วันที่เลือกดูในแท็บตารางเวรและแท็บสรุปการขอสแปร์ (เพื่อให้ไฮไลต์คอลัมน์/แถวได้ชัดเจน)
+    const selectedDateStr = ref(null);
+    function toggleSelectDate(dateStr) {
+      selectedDateStr.value = selectedDateStr.value === dateStr ? null : dateStr;
+    }
+    // เข้ากันได้กับชื่อเดิม (selectedSpareDate)
+    const selectedSpareDate = selectedDateStr;
     function selectSpareDate(dateStr) {
-      selectedSpareDate.value = selectedSpareDate.value === dateStr ? null : dateStr;
+      toggleSelectDate(dateStr);
     }
 
     // =========================================================================
@@ -1891,7 +1896,17 @@ createApp({
       return d === 0 || d === 6;
     }
 
-    function getShiftStyle(shift) {
+    function getShiftStyle(shift, isDateSelected = false) {
+      if (isDateSelected) {
+        switch (shift) {
+          case 'D': return 'bg-amber-300 text-amber-950 border-amber-500 ring-1 ring-amber-400 font-black';
+          case 'N': return 'bg-indigo-300 text-indigo-950 border-indigo-500 ring-1 ring-indigo-400 font-black';
+          case 'H': return 'bg-slate-300 text-slate-700 border-slate-400 ring-1 ring-slate-400 font-bold';
+          case 'L': return 'bg-red-300 text-red-950 border-red-500 ring-1 ring-red-400 font-black';
+          case 'PH': return 'bg-purple-300 text-purple-950 border-purple-500 ring-1 ring-purple-400 font-black';
+          default: return 'bg-amber-100 text-slate-900 ring-1 ring-amber-300';
+        }
+      }
       switch (shift) {
         case 'D': return 'bg-amber-100/90 text-amber-950 border-amber-300';
         case 'N': return 'bg-indigo-100/90 text-indigo-950 border-indigo-300';
@@ -2246,6 +2261,8 @@ createApp({
       lockApp,
       spareTotals,
       spareShortagePoints,
+      selectedDateStr,
+      toggleSelectDate,
       selectedSpareDate,
       selectSpareDate,
       spareStatusText,

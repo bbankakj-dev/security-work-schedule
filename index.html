@@ -281,17 +281,20 @@
                   
                   <!-- Dynamic Day Columns (23rd to 22nd) -->
                   <th v-for="(day, dIdx) in currentCycleDays" :key="dIdx" 
-                      class="py-1 px-1 font-semibold text-center border-b border-slate-700 min-w-[32px]"
+                      @click="toggleSelectDate(day.dateString)"
+                      class="py-1 px-1 font-semibold text-center border-b border-slate-700 min-w-[34px] cursor-pointer transition select-none"
                       :class="[
-                        isWeekend(day.date) ? 'bg-slate-800 text-amber-300' : 'bg-slate-900 text-slate-200',
-                        day.isHoliday ? 'bg-purple-900 text-purple-200' : ''
+                        selectedDateStr === day.dateString
+                          ? '!bg-amber-400 !text-slate-950 font-black ring-2 ring-amber-300'
+                          : (isWeekend(day.date) ? 'bg-slate-800 text-amber-300 hover:bg-slate-700' : 'bg-slate-900 text-slate-200 hover:bg-slate-800'),
+                        day.isHoliday && selectedDateStr !== day.dateString ? 'bg-purple-900 text-purple-200' : ''
                       ]"
-                      :title="day.isHoliday ? day.holidayName : ''">
+                      :title="(day.isHoliday ? day.holidayName + ' · ' : '') + 'คลิกเพื่อเน้น/ไฮไลต์ทั้งคอลัมน์ของวันนี้'">
                     <div class="flex items-center justify-center gap-0.5">
                       <span>{{ day.dayNumber }}</span>
                       <span v-if="day.isHoliday" class="text-[8px] bg-purple-500 text-white px-0.5 rounded">PH</span>
                     </div>
-                    <div class="text-[9px] font-normal" :class="isWeekend(day.date) ? 'text-amber-400' : 'text-slate-400'">
+                    <div class="text-[9px] font-normal" :class="selectedDateStr === day.dateString ? 'text-slate-950 font-bold' : (isWeekend(day.date) ? 'text-amber-400' : 'text-slate-400')">
                       {{ day.dayName }}
                     </div>
                   </th>
@@ -337,13 +340,14 @@
 
                   <!-- Day Shift Cells -->
                   <td v-for="(shift, sIdx) in guard.shifts" :key="sIdx" 
-                      @click="isAdmin || isSupervisor ? editShift(guard, sIdx) : null"
+                      @click="isAdmin || isSupervisor ? editShift(guard, sIdx) : toggleSelectDate(currentCycleDays[sIdx].dateString)"
                       class="py-0.5 px-0.5 text-center font-bold border-l border-slate-100 transition text-[11px]"
                       :class="[
-                        getShiftStyle(shift), 
-                        (isAdmin || isSupervisor) ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : ''
+                        getShiftStyle(shift, selectedDateStr === currentCycleDays[sIdx].dateString),
+                        selectedDateStr === currentCycleDays[sIdx].dateString ? 'ring-2 ring-amber-400 z-10' : '',
+                        (isAdmin || isSupervisor) ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : 'cursor-pointer'
                       ]"
-                      :title="(isAdmin || isSupervisor) ? 'คลิกเพื่อสลับกะ (D -> N -> H -> PH -> L)' : ''">
+                      :title="(isAdmin || isSupervisor) ? 'คลิกเพื่อสลับกะ (D -> N -> H -> PH -> L)' : 'คลิกเพื่อเน้นทั้งคอลัมน์ของวันนี้'">
                     {{ shift }}
                   </td>
 
@@ -370,8 +374,12 @@
                   <td colspan="2" class="bg-slate-900"></td>
                   <td class="sticky-col-4 bg-slate-900 text-right font-bold text-amber-400 text-[10px] px-1.5">☀️ เช้า จริง/สัญญา</td>
                   <td v-for="(day, dIdx) in currentCycleDays" :key="'sum-d-'+dIdx" 
-                      class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800"
-                      :class="getDailySpareGap(dIdx, day.date, 'D') > 0 ? 'bg-red-900/90 text-white' : ''">
+                      @click="toggleSelectDate(day.dateString)"
+                      class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800 cursor-pointer transition select-none"
+                      :class="[
+                        selectedDateStr === day.dateString ? '!bg-amber-800/90 ring-1 ring-amber-400' : '',
+                        getDailySpareGap(dIdx, day.date, 'D') > 0 ? 'bg-red-900/90 text-white' : ''
+                      ]">
                     <div class="font-bold text-amber-300 text-[11px]">{{ getDailyActual(dIdx, 'D') }}</div>
                     <div class="text-[9px] text-slate-400 font-normal mt-0.5">/{{ getDailyContract(day.date, 'D') }}</div>
                     <div v-if="getDailySpareGap(dIdx, day.date, 'D') > 0" class="text-[9px] text-red-200 font-bold bg-red-950 rounded px-0.5 mt-0.5 animate-pulse">
@@ -386,8 +394,12 @@
                   <td colspan="2" class="bg-slate-950"></td>
                   <td class="sticky-col-4 bg-slate-950 text-right font-bold text-indigo-300 text-[10px] px-1.5">🌙 ดึก จริง/สัญญา</td>
                   <td v-for="(day, dIdx) in currentCycleDays" :key="'sum-n-'+dIdx" 
-                      class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800"
-                      :class="getDailySpareGap(dIdx, day.date, 'N') > 0 ? 'bg-red-900/90 text-white' : ''">
+                      @click="toggleSelectDate(day.dateString)"
+                      class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800 cursor-pointer transition select-none"
+                      :class="[
+                        selectedDateStr === day.dateString ? '!bg-amber-900/90 ring-1 ring-amber-400' : '',
+                        getDailySpareGap(dIdx, day.date, 'N') > 0 ? 'bg-red-900/90 text-white' : ''
+                      ]">
                     <div class="font-bold text-indigo-200 text-[11px]">{{ getDailyActual(dIdx, 'N') }}</div>
                     <div class="text-[9px] text-slate-400 font-normal mt-0.5">/{{ getDailyContract(day.date, 'N') }}</div>
                     <div v-if="getDailySpareGap(dIdx, day.date, 'N') > 0" class="text-[9px] text-red-200 font-bold bg-red-950 rounded px-0.5 mt-0.5 animate-pulse">
