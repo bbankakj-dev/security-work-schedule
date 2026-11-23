@@ -1834,6 +1834,79 @@ createApp({
     }
 
     // =========================================================================
+    // หน้า "ใบลงชื่อเข้าปฏิบัติหน้าที่": 1 วัน = 1 หน้า A4 แนวตั้ง มีทั้งกะเช้า (D) และกะดึก (N)
+    //   ดึงรายชื่อจากตารางเวรของวันนั้น / จุดที่ไม่มี รปภ.ประจำ (ตำแหน่งว่าง, โควตาสแปร์, คนลา) เว้นชื่อไว้
+    // =========================================================================
+    const signStartDate = ref(fmtDate(new Date()));
+    const signEndDate = ref(fmtDate(new Date()));
+    const signMaxDays = 31;
+    const SIGN_DAY_FULL_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
+    const SIGN_MONTH_TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+      'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+
+    const signRange = computed(() => {
+      const days = [];
+      let truncated = false;
+      const cur = parseDate(signStartDate.value);
+      const end = parseDate(signEndDate.value);
+      if (isNaN(cur) || isNaN(end)) return { days, truncated };
+      while (cur <= end) {
+        if (days.length >= signMaxDays) { truncated = true; break; }
+        days.push({ date: new Date(cur), dateString: fmtDate(cur) });
+        cur.setDate(cur.getDate() + 1);
+      }
+      return { days, truncated };
+    });
+    const signRangeDays = computed(() => signRange.value.days);
+    const signRangeTruncated = computed(() => signRange.value.truncated);
+
+    // รหัสจุดทำงาน: ใช้ postCode ของตำแหน่งถ้ามีใน permanentStaff, ถ้าไม่มีใช้เลข No. ของตำแหน่ง (เช่น 07)
+    function postCodeOf(no) {
+      const staff = permanentStaff.value.find(s => s.no === no);
+      if (staff && staff.postCode) return staff.postCode;
+      return String(no).padStart(2, '0');
+    }
+
+    const signSheets = computed(() => {
+      return signRangeDays.value.map(day => {
+        const date = day.date;
+        const ctx = getCycleContext(cycleIdForDate(date));
+        const out = {
+          dateString: day.dateString, D: [], N: [],
+          dayFullName: SIGN_DAY_FULL_TH[date.getDay()],
+          dateThai: `${date.getDate()} ${SIGN_MONTH_TH[date.getMonth()]} ${date.getFullYear() + 543}`,
+          holidayName: isPublicHoliday(day.dateString) ? (getHolidayName(day.dateString) || 'วันหยุดนักขัตฤกษ์') : ''
+        };
+        if (!ctx) return out;
+        const idx = utcDayNum(date.getFullYear(), date.getMonth(), date.getDate()) - ctx.startDayNum;
+        ctx.rows.forEach(r => {
+          const s = r.shifts[idx];
+          let t = null;
+          if (s === 'N') t = 'N';
+          else if (s === 'D' || s === 'PH') t = 'D';
+          else if (s === 'L') t = leaveShiftOf(r, date, day.dateString); // คนลา: จุดยังอยู่ แต่เว้นชื่อรอสแปร์
+          if (t !== 'D' && t !== 'N') return;
+          const blank = r.isSpare || s === 'L'; // ตำแหน่งว่าง / โควตาสแปร์ / คนลา = ไม่มี รปภ.ประจำมาทำงาน
+          out[t].push({
+            no: r.no,
+            code: blank ? '' : (r.code || ''),
+            name: blank ? '' : (r.name || ''),
+            position: r.isReliefPool ? 'Spare Relief Pool' : r.position,
+            post: postCodeOf(r.no)
+          });
+        });
+        out.D.sort((x, y) => x.no - y.no);
+        out.N.sort((x, y) => x.no - y.no);
+        return out;
+      });
+    });
+
+    function printSignSheet() {
+      if (!isSupervisor.value) return;
+      window.print();
+    }
+
+    // =========================================================================
     // DAILY CONTRACT CALCULATIONS
     // =========================================================================
     function getDailyContract(dateObj, shiftType) {
@@ -1960,10 +2033,18 @@ createApp({
         alert('🔒 หัวข้อ "สรุปตารางเวรและสแปร์" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น');
         return;
       }
+      if (tab === 'sign_sheet' && !isSupervisor.value) {
+        alert('🔒 หัวข้อ "ใบลงชื่อเข้าปฏิบัติหน้าที่" สำหรับ Supervisor / Admin เท่านั้น กรุณาเข้าสู่ระบบก่อน');
+        return;
+      }
       if (tab === 'billing' || tab === 'schedule_print') {
         cloudCycleCache.value = {}; // เข้าหน้าวางบิล/พิมพ์ตารางทุกครั้ง โหลดตารางรอบอื่นจากระบบกลางใหม่
         loadBillingCycles();
         loadCyclesForDays(schedRangeDays.value);
+      }
+      if (tab === 'sign_sheet') {
+        cloudCycleCache.value = {};
+        loadCyclesForDays(signRangeDays.value);
       }
       currentTab.value = tab;
     }
@@ -2204,6 +2285,10 @@ createApp({
       loadCyclesForDays(schedRangeDays.value);
     });
 
+    watch([signStartDate, signEndDate], () => {
+      loadCyclesForDays(signRangeDays.value);
+    });
+
     // ฟอร์มบันทึกสแปร์: เลือกวันที่ในรอบอื่น -> โหลดตารางรอบนั้นมาเพื่อแสดงจุดที่ต้องการสแปร์
     watch([() => spareForm.value.date, showSpareModal], () => {
       if (showSpareModal.value && spareForm.value.date) loadCyclesForDays([{ date: parseDate(spareForm.value.date) }]);
@@ -2282,6 +2367,13 @@ createApp({
       schedPrint,
       schedLeaveInRange,
       schedSpareInRange,
+      signStartDate,
+      signEndDate,
+      signMaxDays,
+      signRangeDays,
+      signRangeTruncated,
+      signSheets,
+      printSignSheet,
       printSchedule,
       buildScheduleCsv,
       exportScheduleCsv,
