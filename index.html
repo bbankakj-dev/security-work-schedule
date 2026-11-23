@@ -611,13 +611,35 @@
                   <td class="p-2.5 font-mono font-bold">{{ rec.date }}</td>
                   <td class="p-2.5 text-center font-bold" :class="rec.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">{{ rec.shift === 'D' ? 'เช้า (D)' : 'ดึก (N)' }}</td>
                   <td class="p-2.5 text-slate-700">{{ rec.positionText || '-' }}</td>
-                  <td class="p-2.5 font-mono text-slate-600">{{ rec.code || '-' }}</td>
-                  <td class="p-2.5 font-bold text-slate-900">{{ rec.name }}</td>
-                  <td class="p-2.5 text-slate-500">{{ rec.note || '-' }}</td>
-                  <td class="p-2.5 text-slate-500 text-[11px]">{{ rec.loggedBy }}</td>
-                  <td v-if="isAdmin || isSupervisor" class="p-2.5 text-center">
-                    <button @click="cancelSpare(rec)" class="text-red-600 hover:text-red-800 font-medium underline">ลบ</button>
-                  </td>
+
+                  <!-- แสดงปกติ หรือ โหมดแก้ไข (Admin เท่านั้น) -->
+                  <template v-if="editingSpareId === rec.id">
+                    <td class="p-1.5">
+                      <input v-model="spareEditForm.code" placeholder="รหัส" class="w-full border rounded p-0.5 text-xs font-mono">
+                    </td>
+                    <td class="p-1.5">
+                      <input v-model="spareEditForm.name" placeholder="ชื่อ-สกุล" class="w-full border rounded p-0.5 text-xs font-bold">
+                    </td>
+                    <td class="p-2.5 text-slate-500">{{ rec.note || '-' }}</td>
+                    <td class="p-2.5 text-slate-500 text-[11px]">{{ rec.loggedBy }}</td>
+                    <td v-if="isAdmin || isSupervisor" class="p-1.5 text-center whitespace-nowrap space-x-1">
+                      <button @click="saveEditSpare" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-0.5 rounded text-[11px]">บันทึก</button>
+                      <button @click="cancelEditSpare" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2 py-0.5 rounded text-[11px]">ยกเลิก</button>
+                    </td>
+                  </template>
+                  <template v-else>
+                    <td class="p-2.5 font-mono text-slate-600">{{ rec.code || '-' }}</td>
+                    <td class="p-2.5 font-bold text-slate-900">
+                      {{ rec.name }}
+                      <span v-if="rec.editedAt" class="text-[10px] text-slate-400 font-normal block">(แก้ไขโดย {{ rec.editedBy }})</span>
+                    </td>
+                    <td class="p-2.5 text-slate-500">{{ rec.note || '-' }}</td>
+                    <td class="p-2.5 text-slate-500 text-[11px]">{{ rec.loggedBy }}</td>
+                    <td v-if="isAdmin || isSupervisor" class="p-2.5 text-center whitespace-nowrap space-x-1">
+                      <button v-if="isAdmin" @click="startEditSpare(rec)" class="text-amber-600 hover:text-amber-800 font-semibold underline mr-1">✏️ แก้ไข</button>
+                      <button @click="cancelSpare(rec)" class="text-red-600 hover:text-red-800 font-medium underline">ลบ</button>
+                    </td>
+                  </template>
                 </tr>
               </tbody>
             </table>
@@ -907,7 +929,7 @@
         </div>
 
         <!-- Personal Summary Cards -->
-        <div v-if="selectedGuard" class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div v-if="selectedGuard" class="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
             <span class="text-xs text-amber-800 font-semibold block">☀️ กะเช้า (Day)</span>
             <span class="text-2xl font-bold text-amber-950 mt-0.5 block">{{ countShifts(selectedGuard, 'D') }} วัน</span>
@@ -927,6 +949,12 @@
             <span class="text-xs text-purple-800 font-semibold block">🎉 วันนักขัตฤกษ์ (PH)</span>
             <span class="text-2xl font-bold text-purple-950 mt-0.5 block">{{ countShifts(selectedGuard, 'PH') }} วัน</span>
             <span class="text-[10px] text-purple-700">ตามประกาศโรงงาน</span>
+          </div>
+          <!-- การ์ดจำนวนวันลา -->
+          <div class="bg-rose-50 border border-rose-200 rounded-xl p-3 text-center">
+            <span class="text-xs text-rose-800 font-semibold block">🗓️ วันลา (Leave)</span>
+            <span class="text-2xl font-bold text-rose-950 mt-0.5 block">{{ selectedGuardLeaveDays }} วัน</span>
+            <span class="text-[10px] text-rose-700">จำนวนวันที่บันทึกลาในรอบ</span>
           </div>
         </div>
 
@@ -1413,6 +1441,52 @@
       <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
         <h3 class="font-bold text-slate-900 text-base mb-1">บันทึกสแปร์ที่มาปฏิบัติงาน</h3>
         <p class="text-xs text-slate-500 mb-3">ระบุกะและชื่อสแปร์ที่มาจริง (แทนเฉพาะกะนั้นของวันนั้น ไม่ต้องระบุว่าแทนใคร) · ถ้าเป็นคนประจำคนใหม่ ให้ไปบรรจุที่แท็บ "จัดการ รปภ.ประจำ" ชื่อจะขึ้นในตารางทุกวัน</p>
+
+        <!-- สแปร์ประจำ: เลือกจากรายการที่บันทึกไว้ -->
+        <div v-if="regularSpares.length" class="mb-3 bg-amber-50 border border-amber-200 rounded-xl p-2.5">
+          <p class="text-[10px] font-bold text-amber-800 mb-1.5">⭐ สแปร์ประจำ — กดเลือกเพื่อกรอกอัตโนมัติ</p>
+          <div class="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+            <button v-for="(sp, i) in regularSpares" :key="i"
+                    @click="pickRegularSpare(sp)"
+                    class="text-[11px] bg-white border border-amber-300 hover:bg-amber-100 text-amber-900 font-semibold px-2 py-1 rounded-lg transition">
+              {{ sp.name }}<span v-if="sp.code" class="text-amber-500 font-normal ml-1">({{ sp.code }})</span>
+            </button>
+          </div>
+        </div>
+        <div v-else class="mb-3 bg-slate-50 border border-slate-200 rounded-xl p-2.5 text-[10px] text-slate-400">
+          ยังไม่มีสแปร์ประจำบันทึกไว้ (Admin สามารถเพิ่มได้ด้านล่าง)
+        </div>
+
+        <!-- Admin: จัดการสแปร์ประจำ -->
+        <div v-if="isAdmin" class="mb-3">
+          <button @click="showRegularSpareMgr = !showRegularSpareMgr"
+                  class="text-[11px] text-amber-700 underline hover:text-amber-900">
+            {{ showRegularSpareMgr ? '▲ ซ่อนการจัดการสแปร์ประจำ' : '▼ จัดการรายชื่อสแปร์ประจำ (เพิ่ม/ลบ)' }}
+          </button>
+          <div v-if="showRegularSpareMgr" class="mt-2 p-2.5 border border-amber-200 bg-amber-50/60 rounded-xl space-y-2">
+            <div class="flex gap-1.5 items-end">
+              <div class="flex-1">
+                <label class="text-[10px] text-slate-600 block">รหัส (ถ้ามี):</label>
+                <input v-model="regularSpareForm.code" placeholder="เช่น SP01" class="w-full bg-white border rounded p-1 text-xs font-mono">
+              </div>
+              <div class="flex-[2]">
+                <label class="text-[10px] text-slate-600 block">ชื่อ - สกุล: <span class="text-red-500">*</span></label>
+                <input v-model="regularSpareForm.name" placeholder="ชื่อ สกุล" class="w-full bg-white border rounded p-1 text-xs font-bold">
+              </div>
+              <button @click="addRegularSpare"
+                      class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-xs whitespace-nowrap">
+                + เพิ่ม
+              </button>
+            </div>
+            <div v-if="regularSpares.length" class="space-y-1 max-h-24 overflow-y-auto">
+              <div v-for="(sp, i) in regularSpares" :key="i"
+                   class="flex items-center justify-between bg-white border border-amber-200 rounded px-2 py-0.5 text-xs">
+                <span class="font-semibold">{{ sp.name }}<span v-if="sp.code" class="text-slate-400 font-normal ml-1">({{ sp.code }})</span></span>
+                <button @click="removeRegularSpare(i)" class="text-red-500 hover:text-red-700 ml-2 font-bold">✕</button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         <div class="space-y-3 text-xs mb-4">
           <div class="bg-purple-50/60 p-2.5 rounded-lg border border-purple-200 space-y-2">

@@ -1238,6 +1238,88 @@ createApp({
     //   พอกะสิ้นสุด ถ้าสแปร์มาไม่ครบ = จุดขาด
     // =========================================================================
     const SPARE_TYPE = 'สแปร์ บ.ต้นสังกัด'; // สแปร์มีประเภทเดียว (แทนเฉพาะกะนั้นของวันนั้น) / คนประจำคนใหม่ให้บรรจุในทะเบียน รปภ.ประจำ
+
+    // =========================================================================
+    // สแปร์ประจำ (รายชื่อที่มาบ่อยๆ เพื่อเลือกกรอกฟอร์มได้เลย)
+    // =========================================================================
+    const regularSpares = ref([]);
+    const showRegularSpareMgr = ref(false);
+    const regularSpareForm = ref({ code: '', name: '' });
+
+    function initRegularSpares() {
+      if (CLOUD_ENABLED) {
+        // ระบบกลาง: โหลดจาก Firestore ผ่าน startCloudListeners (listener เพิ่มด้านล่าง)
+        regularSpares.value = [];
+        return;
+      }
+      const saved = safeParse('sws_regular_spares', []);
+      regularSpares.value = Array.isArray(saved) ? saved : [];
+    }
+
+    function saveRegularSpares() {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('settings').doc('regular_spares').set({ list: plain(regularSpares.value) }));
+        return;
+      }
+      localStorage.setItem('sws_regular_spares', JSON.stringify(regularSpares.value));
+    }
+
+    function addRegularSpare() {
+      const code = regularSpareForm.value.code.trim();
+      const name = regularSpareForm.value.name.trim();
+      if (!name) { alert('⚠️ กรุณากรอกชื่อ-สกุลสแปร์ประจำ'); return; }
+      if (regularSpares.value.some(s => s.name === name)) {
+        alert('⚠️ มีชื่อนี้ในรายการสแปร์ประจำอยู่แล้ว');
+        return;
+      }
+      regularSpares.value.push({ code, name });
+      regularSpareForm.value = { code: '', name: '' };
+      saveRegularSpares();
+    }
+
+    function removeRegularSpare(idx) {
+      if (confirm(`ลบสแปร์ประจำ "${regularSpares.value[idx].name}" หรือไม่?`)) {
+        regularSpares.value.splice(idx, 1);
+        saveRegularSpares();
+      }
+    }
+
+    function pickRegularSpare(sp) {
+      spareForm.value.code = sp.code;
+      spareForm.value.name = sp.name;
+      showRegularSpareMgr.value = false;
+    }
+
+    // =========================================================================
+    // Admin แก้ไขรายการสแปร์ที่บันทึกไว้แล้ว (แก้ชื่อ/รหัสย้อนหลังกรณีพิมพ์ผิด)
+    // =========================================================================
+    const editingSpareId = ref(null);
+    const spareEditForm = ref({ code: '', name: '' });
+
+    function startEditSpare(sp) {
+      editingSpareId.value = sp.id;
+      spareEditForm.value = { code: sp.code || '', name: sp.name || '' };
+    }
+
+    function cancelEditSpare() {
+      editingSpareId.value = null;
+      spareEditForm.value = { code: '', name: '' };
+    }
+
+    function saveEditSpare() {
+      const name = spareEditForm.value.name.trim();
+      if (!name) { alert('⚠️ กรุณากรอกชื่อ-สกุลสแปร์'); return; }
+      const idx = spareArrivals.value.findIndex(s => s.id === editingSpareId.value);
+      if (idx !== -1) {
+        spareArrivals.value[idx].code = spareEditForm.value.code.trim();
+        spareArrivals.value[idx].name = name;
+        spareArrivals.value[idx].editedAt = new Date().toISOString();
+        spareArrivals.value[idx].editedBy = currentUser.value ? currentUser.value.name : 'admin';
+        persistSpareAdd(spareArrivals.value[idx]);
+      }
+      cancelEditSpare();
+      alert('✅ แก้ไขข้อมูลสแปร์เรียบร้อยแล้ว');
+    }
     const SHIFT_END = { D: { h: 18, m: 30, nextDay: false }, N: { h: 6, m: 30, nextDay: true } }; // เช้าจบ 18:30 / ดึกจบ 06:30 วันถัดไป
     const nowTick = ref(Date.now());
     const spareArrivals = ref([]);
@@ -1825,6 +1907,17 @@ createApp({
       return getPositionWorkHours(selectedGuard.value.position, 'D').text;
     });
 
+    // จำนวนวันลาของ guard ที่เลือก ในรอบที่แสดงอยู่
+    const selectedGuardLeaveDays = computed(() => {
+      if (!selectedGuard.value) return 0;
+      const g = selectedGuard.value;
+      // นับจาก leaveRecords
+      const fromLeave = leaveRecords.value.filter(r => r.guardNo === g.no).length;
+      // นับจากเซลล์ที่เป็น L ในตาราง (กรณีแก้ไขตรงๆ)
+      const fromShift = (g.shifts || []).filter(s => s === 'L').length;
+      return Math.max(fromLeave, fromShift);
+    });
+
     const selectedGuardStats = computed(() => {
       if (!selectedGuard.value) return null;
       const st = weeklyHoursStats(selectedGuard.value);
@@ -1991,6 +2084,12 @@ createApp({
         sortSpareArrivals();
         cloudStatus.value = 'online';
       }, onErr('spareArrivals'));
+
+      fbDb.collection('settings').doc('regular_spares').onSnapshot(snap => {
+        if (snap.metadata.hasPendingWrites) return;
+        const list = snap.exists ? snap.data().list : null;
+        if (Array.isArray(list)) regularSpares.value = list;
+      }, onErr('regular_spares'));
     }
 
     // Admin: ย้ายข้อมูลที่เคยแก้ไว้ใน localStorage ของเครื่องนี้ ขึ้นระบบกลาง (ทำครั้งเดียว)
@@ -2053,6 +2152,7 @@ createApp({
       initPermanentStaff();
       initLeaveRecords();
       initSpareArrivals();
+      initRegularSpares();
       initSchedule();
       if (CLOUD_ENABLED) startCloudListeners();
       // อัปเดตเวลาทุกนาที เพื่อให้สถานะ "รอสแปร์ -> ขาด" เปลี่ยนเองเมื่อหมดกะ
@@ -2180,12 +2280,26 @@ createApp({
       selectedGuardNo,
       selectedGuard,
       guardWorkHoursText,
+      selectedGuardLeaveDays,
       showChangePasswordModal,
       changePasswordForm,
       changePasswordError,
       changePasswordLoading,
       openChangePasswordModal,
-      handleChangePassword
+      handleChangePassword,
+      // สแปร์ประจำ
+      regularSpares,
+      showRegularSpareMgr,
+      regularSpareForm,
+      addRegularSpare,
+      removeRegularSpare,
+      pickRegularSpare,
+      // แก้ไขรายการสแปร์ย้อนหลัง (Admin)
+      editingSpareId,
+      spareEditForm,
+      startEditSpare,
+      cancelEditSpare,
+      saveEditSpare
     };
   }
 }).mount('#app');
