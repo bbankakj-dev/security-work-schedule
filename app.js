@@ -1953,11 +1953,11 @@ createApp({
 
     function selectTab(tab) {
       if (tab === 'billing' && !isAdmin.value) {
-        alert('🔒 หัวข้อ "วางบิล (Billing Summary)" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น ตามข้อกำหนดข้อ 7');
+        alert('🔒 หัวข้อ "สรุปชั่วโมงการปฏิบัติงาน" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น ตามข้อกำหนดข้อ 7');
         return;
       }
       if (tab === 'schedule_print' && !isAdmin.value) {
-        alert('🔒 หัวข้อ "ตารางเวรรวม (พิมพ์/Export)" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น');
+        alert('🔒 หัวข้อ "สรุปตารางเวรและสแปร์" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น');
         return;
       }
       if (tab === 'billing' || tab === 'schedule_print') {

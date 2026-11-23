@@ -188,13 +188,13 @@
           <button @click="selectTab('schedule_print')" 
                   :class="currentTab === 'schedule_print' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
-            📄 ตารางเวรรวม (พิมพ์/Export)
+            📄 สรุปตารางเวรและสแปร์
             <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
           </button>
           <button @click="selectTab('billing')" 
                   :class="currentTab === 'billing' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
-            🖨️ วางบิล (Billing)
+            🖨️ สรุปชั่วโมงการปฏิบัติงาน
             <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
           </button>
           <button v-if="isAdmin" @click="selectTab('admin_settings')" 
@@ -696,12 +696,12 @@
       </section>
 
       <!-- ===================================================================== -->
-      <!-- TAB: ตารางเวรรวม (พิมพ์/Export) เลือกช่วงวันที่ + ช่องลายเซ็น               -->
+      <!-- TAB: สรุปตารางเวรและสแปร์ (เลือกช่วงวันที่ + ช่องลายเซ็น)               -->
       <!-- ===================================================================== -->
       <section v-if="currentTab === 'schedule_print' && isAdmin" class="space-y-4">
         <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
           <div>
-            <h2 class="text-base font-bold text-slate-800">ตารางเวรรวม (พิมพ์ / Export)</h2>
+            <h2 class="text-base font-bold text-slate-800">สรุปตารางเวรและสแปร์</h2>
             <p class="text-xs text-slate-500">เลือกช่วงวันที่ (ข้ามรอบเงินเดือนได้ สูงสุด 62 วัน) พร้อมสรุปสแปร์ รายการลา และช่องลายเซ็น 4 ฝ่าย</p>
           </div>
           <div class="flex flex-wrap items-center gap-2 text-xs">
@@ -1029,7 +1029,7 @@
       </section>
 
       <!-- ===================================================================== -->
-      <!-- TAB 5: วางบิล (Billing Summary - ADMIN ONLY & 4 SIGNATURE BLOCKS)     -->
+      <!-- TAB 5: สรุปชั่วโมงการปฏิบัติงาน (ADMIN ONLY & 4 SIGNATURE BLOCKS)     -->
       <!-- ===================================================================== -->
       <section v-if="currentTab === 'billing' && isAdmin" class="space-y-4">
         
@@ -1037,10 +1037,10 @@
         <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
           <div>
             <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
-              <span>เอกสารสรุปกำลังพลแนบการวางบิล (Billing Summary)</span>
+              <span>เอกสารสรุปชั่วโมงการปฏิบัติงาน รปภ. (Billing Summary)</span>
               <span class="text-[10px] bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold">Admin Only</span>
             </h2>
-            <p class="text-xs text-slate-500">กำหนดช่วงวันที่เพื่อสรุปตารางกำลังพลรายบุคคล พร้อมรายการสแปร์ และช่องเซ็น 4 ฝ่าย</p>
+            <p class="text-xs text-slate-500">กำหนดช่วงวันที่เพื่อสรุปชั่วโมงการทำงานรายบุคคล พร้อมรายการสแปร์ และช่องเซ็น 4 ฝ่าย</p>
           </div>
 
           <!-- Date Range Pickers -->
