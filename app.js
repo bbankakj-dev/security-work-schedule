@@ -420,6 +420,97 @@ createApp({
     }
 
     // =========================================================================
+    // เปลี่ยนรหัสผ่าน (Change Password)
+    // =========================================================================
+    const showChangePasswordModal = ref(false);
+    const changePasswordForm = ref({ oldPassword: '', newPassword: '', confirmPassword: '' });
+    const changePasswordError = ref('');
+    const changePasswordLoading = ref(false);
+
+    function openChangePasswordModal() {
+      changePasswordForm.value = { oldPassword: '', newPassword: '', confirmPassword: '' };
+      changePasswordError.value = '';
+      showChangePasswordModal.value = true;
+    }
+
+    async function handleChangePassword() {
+      const f = changePasswordForm.value;
+      changePasswordError.value = '';
+
+      // ตรวจสอบข้อมูลเบื้องต้น
+      if (!f.newPassword || !f.confirmPassword) {
+        changePasswordError.value = '⚠️ กรุณากรอกรหัสผ่านใหม่และยืนยันรหัสผ่าน';
+        return;
+      }
+      if (f.newPassword.length < 6) {
+        changePasswordError.value = '⚠️ รหัสผ่านใหม่ต้องยาวอย่างน้อย 6 ตัวอักษร';
+        return;
+      }
+      if (f.newPassword !== f.confirmPassword) {
+        changePasswordError.value = '❌ รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน';
+        return;
+      }
+
+      changePasswordLoading.value = true;
+
+      // โหมด Firebase
+      if (CLOUD_ENABLED) {
+        try {
+          const user = fbAuth.currentUser;
+          if (!user) {
+            changePasswordError.value = '❌ ไม่พบข้อมูลผู้ใช้ กรุณาล็อกอินใหม่';
+            changePasswordLoading.value = false;
+            return;
+          }
+          // Re-authenticate ก่อนเปลี่ยนรหัสผ่าน (Firebase กำหนด)
+          if (!f.oldPassword) {
+            changePasswordError.value = '⚠️ กรุณาใส่รหัสผ่านเดิม (จำเป็นเพื่อยืนยันตัวตน)';
+            changePasswordLoading.value = false;
+            return;
+          }
+          const credential = FB_WINDOW.firebase.auth.EmailAuthProvider.credential(user.email, f.oldPassword);
+          await user.reauthenticateWithCredential(credential);
+          await user.updatePassword(f.newPassword);
+          showChangePasswordModal.value = false;
+          alert('✅ เปลี่ยนรหัสผ่านสำเร็จแล้ว กรุณาใช้รหัสผ่านใหม่ในการล็อกอินครั้งต่อไป');
+        } catch (e) {
+          const code = e && e.code;
+          if (code === 'auth/wrong-password' || code === 'auth/invalid-credential') {
+            changePasswordError.value = '❌ รหัสผ่านเดิมไม่ถูกต้อง';
+          } else if (code === 'auth/too-many-requests') {
+            changePasswordError.value = '🚫 ลองผิดหลายครั้งเกินไป กรุณารอสักครู่แล้วลองใหม่';
+          } else if (code === 'auth/network-request-failed') {
+            changePasswordError.value = '📡 เชื่อมต่ออินเทอร์เน็ตไม่ได้ กรุณาลองใหม่';
+          } else {
+            changePasswordError.value = '⚠️ เปลี่ยนรหัสผ่านไม่สำเร็จ: ' + ((e && (e.message || e.code)) || 'unknown');
+          }
+        } finally {
+          changePasswordLoading.value = false;
+        }
+        return;
+      }
+
+      // โหมด localStorage
+      const u = userAccounts.value.find(a => a.username === currentUser.value.username);
+      if (!u) {
+        changePasswordError.value = '❌ ไม่พบข้อมูลบัญชี';
+        changePasswordLoading.value = false;
+        return;
+      }
+      if (f.oldPassword !== u.password) {
+        changePasswordError.value = '❌ รหัสผ่านเดิมไม่ถูกต้อง';
+        changePasswordLoading.value = false;
+        return;
+      }
+      u.password = f.newPassword;
+      currentUser.value = u;
+      saveUsers();
+      changePasswordLoading.value = false;
+      showChangePasswordModal.value = false;
+      alert('✅ เปลี่ยนรหัสผ่านสำเร็จแล้ว กรุณาใช้รหัสผ่านใหม่ในการล็อกอินครั้งต่อไป');
+    }
+
+    // =========================================================================
     // 6. WORK HOURS SPECIFICATION BY POSITION
     // =========================================================================
     function getPositionWorkHours(position, shiftType = 'D') {
@@ -2088,7 +2179,13 @@ createApp({
       getPositionWorkHours,
       selectedGuardNo,
       selectedGuard,
-      guardWorkHoursText
+      guardWorkHoursText,
+      showChangePasswordModal,
+      changePasswordForm,
+      changePasswordError,
+      changePasswordLoading,
+      openChangePasswordModal,
+      handleChangePassword
     };
   }
 }).mount('#app');
