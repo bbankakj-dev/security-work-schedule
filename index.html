@@ -421,7 +421,7 @@
                     <div class="font-bold text-amber-300 text-[11px]">{{ getDailyActual(dIdx, 'D') }}</div>
                     <div class="text-[9px] text-slate-400 font-normal mt-0.5">/{{ getDailyContract(day.date, 'D') }}</div>
                     <div v-if="getDailySpareGap(dIdx, day.date, 'D') > 0" class="text-[9px] text-red-200 font-bold bg-red-950 rounded px-0.5 mt-0.5 animate-pulse">
-                      ขาด {{ getDailySpareGap(dIdx, day.date, 'D') }}
+                      {{ getDailyGapLabel(dIdx, 'D') }} {{ getDailySpareGap(dIdx, day.date, 'D') }}
                     </div>
                   </td>
                   <td colspan="5" class="py-1 text-center text-slate-500 font-normal text-[10px]">-</td>
@@ -441,7 +441,7 @@
                     <div class="font-bold text-indigo-200 text-[11px]">{{ getDailyActual(dIdx, 'N') }}</div>
                     <div class="text-[9px] text-slate-400 font-normal mt-0.5">/{{ getDailyContract(day.date, 'N') }}</div>
                     <div v-if="getDailySpareGap(dIdx, day.date, 'N') > 0" class="text-[9px] text-red-200 font-bold bg-red-950 rounded px-0.5 mt-0.5 animate-pulse">
-                      ขาด {{ getDailySpareGap(dIdx, day.date, 'N') }}
+                      {{ getDailyGapLabel(dIdx, 'N') }} {{ getDailySpareGap(dIdx, day.date, 'N') }}
                     </div>
                   </td>
                   <td colspan="5" class="py-1 text-center text-slate-500 font-normal text-[10px]">-</td>

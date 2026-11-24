@@ -1931,11 +1931,24 @@ createApp({
       return 19; // Mon-Fri
     }
 
+    // จำนวนคนที่ปฏิบัติงานจริงของกะนั้น = รปภ.ประจำที่มาทำงาน (ไม่นับตำแหน่งว่าง/โควตาสแปร์/คนลา) + สแปร์ที่บันทึกว่ามาจริง
+    // (ตรงกับหน้า "สรุปการขอสแปร์": ขาด = ขอสแปร์ - สแปร์ที่มา)
     function getDailyActual(dayIdx, shiftType) {
       if (!scheduleData.value.length) return 0;
-      return scheduleData.value.reduce((acc, guard) => {
-        return acc + (guard.shifts[dayIdx] === shiftType ? 1 : 0);
+      const regular = scheduleData.value.reduce((acc, guard) => {
+        if (guard.isSpare) return acc; // ตำแหน่งว่าง / แถว 40 ไม่ใช่คนจริง
+        const s = guard.shifts[dayIdx];
+        return acc + ((s === shiftType || (shiftType === 'D' && s === 'PH')) ? 1 : 0);
       }, 0);
+      const day = currentCycleDays.value[dayIdx];
+      const arrived = day ? (arrivalsIndex.value[`${day.dateString}|${shiftType}`] || []).length : 0;
+      return regular + arrived;
+    }
+
+    // ป้ายสถานะของยอดขาด: กะยังไม่จบ = "รอ" / กะจบแล้ว = "ขาด" (เหมือนหน้าสรุปการขอสแปร์)
+    function getDailyGapLabel(dayIdx, shiftType) {
+      const st = spareDayStats.value[dayIdx];
+      return st && st[shiftType] && st[shiftType].status === 'pending' ? 'รอ' : 'ขาด';
     }
 
     function getDailySpareGap(dayIdx, dateObj, shiftType) {
@@ -2401,6 +2414,7 @@ createApp({
       getDailyContract,
       getDailyActual,
       getDailySpareGap,
+      getDailyGapLabel,
       resetScheduleToMaster,
       leaveRecords,
       showLeaveModal,
