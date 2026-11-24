@@ -416,11 +416,11 @@
                       class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800 cursor-pointer transition select-none"
                       :class="[
                         selectedDateStr === day.dateString ? '!bg-amber-800/90 ring-1 ring-amber-400' : '',
-                        getDailySpareGap(dIdx, day.date, 'D') > 0 ? (getDailyGapLabel(dIdx, 'D') === 'รอ' ? 'bg-amber-900/80 text-white' : 'bg-red-900/90 text-white') : ''
+                        ''
                       ]">
                     <div class="font-bold text-amber-300 text-[11px]">{{ getDailyActual(dIdx, 'D') }}</div>
                     <div class="text-[9px] text-slate-400 font-normal mt-0.5">/{{ getDailyContract(day.date, 'D') }}</div>
-                    <div v-if="getDailySpareGap(dIdx, day.date, 'D') > 0" class="text-[9px] font-bold rounded px-0.5 mt-0.5" :class="getDailyGapLabel(dIdx, 'D') === 'รอ' ? 'text-amber-200 bg-amber-950' : 'text-red-200 bg-red-950 animate-pulse'">
+                    <div v-if="getDailySpareGap(dIdx, day.date, 'D') > 0" class="text-[9px] font-bold mt-0.5" :class="getDailyGapLabel(dIdx, 'D') === 'รอ' ? 'text-amber-300' : 'text-red-500'">
                       {{ getDailyGapLabel(dIdx, 'D') }} {{ getDailySpareGap(dIdx, day.date, 'D') }}
                     </div>
                   </td>
@@ -436,11 +436,11 @@
                       class="py-1 px-0.5 text-center font-mono leading-none border-l border-slate-800 cursor-pointer transition select-none"
                       :class="[
                         selectedDateStr === day.dateString ? '!bg-amber-900/90 ring-1 ring-amber-400' : '',
-                        getDailySpareGap(dIdx, day.date, 'N') > 0 ? (getDailyGapLabel(dIdx, 'N') === 'รอ' ? 'bg-amber-900/80 text-white' : 'bg-red-900/90 text-white') : ''
+                        ''
                       ]">
                     <div class="font-bold text-indigo-200 text-[11px]">{{ getDailyActual(dIdx, 'N') }}</div>
                     <div class="text-[9px] text-slate-400 font-normal mt-0.5">/{{ getDailyContract(day.date, 'N') }}</div>
-                    <div v-if="getDailySpareGap(dIdx, day.date, 'N') > 0" class="text-[9px] font-bold rounded px-0.5 mt-0.5" :class="getDailyGapLabel(dIdx, 'N') === 'รอ' ? 'text-amber-200 bg-amber-950' : 'text-red-200 bg-red-950 animate-pulse'">
+                    <div v-if="getDailySpareGap(dIdx, day.date, 'N') > 0" class="text-[9px] font-bold mt-0.5" :class="getDailyGapLabel(dIdx, 'N') === 'รอ' ? 'text-amber-300' : 'text-red-500'">
                       {{ getDailyGapLabel(dIdx, 'N') }} {{ getDailySpareGap(dIdx, day.date, 'N') }}
                     </div>
                   </td>
