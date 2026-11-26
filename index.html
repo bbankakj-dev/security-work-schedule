@@ -182,24 +182,24 @@
                   :class="currentTab === 'leave_replace' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             📝 คนแจ้งลา
-            <span v-if="leaveRecords.length > 0" class="bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-              {{ leaveRecords.length }}
+            <span v-if="currentCycleLeaves.length > 0" class="bg-red-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {{ currentCycleLeaves.length }}
             </span>
           </button>
           <button @click="selectTab('spare_arrivals')" 
                   :class="currentTab === 'spare_arrivals' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             🧑‍🔧 สแปร์ที่มาปฏิบัติงาน
-            <span v-if="spareArrivals.length > 0" class="bg-purple-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-              {{ spareArrivals.length }}
+            <span v-if="currentCycleSpares.length > 0" class="bg-purple-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {{ currentCycleSpares.length }}
             </span>
           </button>
           <button v-if="isSupervisor" @click="selectTab('position_swap')" 
                   :class="currentTab === 'position_swap' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             🔄 สลับจุด
-            <span v-if="positionSwaps.length > 0" class="bg-sky-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
-              {{ positionSwaps.length }}
+            <span v-if="currentCycleSwaps.length > 0" class="bg-sky-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {{ currentCycleSwaps.length }}
             </span>
           </button>
           <button @click="selectTab('personal')" 
@@ -622,8 +622,8 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div v-if="leaveRecords.length === 0" class="p-8 text-center text-slate-400 text-xs">
-            ยังไม่มีรายการแจ้งลาในระบบ
+          <div v-if="currentCycleLeaves.length === 0" class="p-8 text-center text-slate-400 text-xs">
+            ยังไม่มีรายการแจ้งลาใน{{ currentCycle.name }}
           </div>
           <div v-else class="overflow-x-auto">
             <table class="w-full text-xs text-left">
@@ -641,7 +641,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
-                <tr v-for="(rec, idx) in leaveRecords" :key="rec.id" class="hover:bg-slate-50">
+                <tr v-for="(rec, idx) in currentCycleLeaves" :key="rec.id" class="hover:bg-slate-50">
                   <td class="p-2.5 text-center text-slate-500">{{ idx + 1 }}</td>
                   <td class="p-2.5 font-mono font-bold">{{ rec.date }}</td>
                   <td class="p-2.5 text-center font-bold" :class="rec.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">{{ rec.shift === 'D' ? 'เช้า (D)' : 'ดึก (N)' }}</td>
@@ -678,8 +678,8 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div v-if="spareArrivals.length === 0" class="p-8 text-center text-slate-400 text-xs">
-            ยังไม่มีรายการสแปร์ที่มาปฏิบัติงาน
+          <div v-if="currentCycleSpares.length === 0" class="p-8 text-center text-slate-400 text-xs">
+            ยังไม่มีรายการสแปร์ที่มาปฏิบัติงานใน{{ currentCycle.name }}
           </div>
           <div v-else class="overflow-x-auto">
             <table class="w-full text-xs text-left">
@@ -697,7 +697,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
-                <tr v-for="(rec, idx) in spareArrivals" :key="rec.id" class="hover:bg-slate-50">
+                <tr v-for="(rec, idx) in currentCycleSpares" :key="rec.id" class="hover:bg-slate-50">
                   <td class="p-2.5 text-center text-slate-500">{{ idx + 1 }}</td>
                   <td class="p-2.5 font-mono font-bold">{{ rec.date }}</td>
                   <td class="p-2.5 text-center font-bold" :class="rec.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">{{ rec.shift === 'D' ? 'เช้า (D)' : 'ดึก (N)' }}</td>
@@ -937,7 +937,7 @@
         <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
           <div>
             <h2 class="text-base font-bold text-slate-800">ใบลงชื่อเข้าปฏิบัติหน้าที่</h2>
-            <p class="text-xs text-slate-500">ดึงรายชื่อจากตารางเวรของแต่ละกะ แต่ละวัน (1 วัน = 1 หน้า) จุดที่ไม่มี รปภ.ประจำ (ตำแหน่งว่าง / คนลา / โควตาสแปร์) เว้นช่องชื่อไว้ให้สแปร์ลงชื่อเอง</p>
+            <p class="text-xs text-slate-500">จัดตำแหน่งตามจำนวนที่ Fix ไว้รายวัน: กะเช้า จ.-ศ. 19 จุด / เสาร์ 17 จุด / อาทิตย์ 16 จุด และกะดึก 10 จุด · จุดที่ยังไม่มีผู้ปฏิบัติงานจะแสดงเป็นช่องว่างสำหรับสแปร์</p>
           </div>
           <div class="flex flex-wrap items-center gap-2 text-xs">
             <div class="flex items-center gap-1 bg-slate-50 border border-slate-300 px-2.5 py-1 rounded-lg">
@@ -1434,8 +1434,8 @@
         </div>
 
         <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-          <div v-if="positionSwaps.length === 0" class="p-8 text-center text-slate-400 text-xs">
-            ยังไม่มีรายการสลับจุดในระบบ
+          <div v-if="currentCycleSwaps.length === 0" class="p-8 text-center text-slate-400 text-xs">
+            ยังไม่มีรายการสลับจุดใน{{ currentCycle.name }}
           </div>
           <div v-else class="overflow-x-auto">
             <table class="w-full text-xs text-left">
@@ -1454,7 +1454,7 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
-                <tr v-for="(sw, idx) in positionSwaps" :key="sw.id" class="hover:bg-slate-50">
+                <tr v-for="(sw, idx) in currentCycleSwaps" :key="sw.id" class="hover:bg-slate-50">
                   <td class="p-2.5 text-center text-slate-500">{{ idx + 1 }}</td>
                   <td class="p-2.5 font-mono font-bold">{{ sw.date }}</td>
                   <td class="p-2.5 text-center font-bold" :class="sw.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">
@@ -1462,10 +1462,7 @@
                   </td>
                   <td class="p-2.5 font-mono text-slate-600">{{ sw.fromGuardCode || '-' }}</td>
                   <td class="p-2.5 font-bold text-slate-900">{{ sw.fromGuardName }}</td>
-                  <td class="p-2.5 text-slate-600">
-                    No.{{ sw.fromGuardNo }} {{ sw.fromPositionName }}
-                    <span v-if="sw.reducePost" class="ml-1 text-[10px] bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded font-semibold">ลดจุดเดิม</span>
-                  </td>
+                  <td class="p-2.5 text-slate-600">No.{{ sw.fromGuardNo }} {{ sw.fromPositionName }}</td>
                   <td class="p-2.5 font-bold text-sky-800">
                     ➔ No.{{ sw.toPositionNo }} {{ sw.toPositionName }}
                     <span class="text-[10px] text-slate-500 font-normal block">({{ sw.toPersonName }})</span>
@@ -1961,11 +1958,8 @@
                 <optgroup v-if="spareSpotOptions.needed.length" :label="'จุดที่ยังต้องการสแปร์ (' + spareSpotOptions.needed.length + ')'">
                   <option v-for="o in spareSpotOptions.needed" :key="'n' + o.no" :value="o.no">{{ o.text }}</option>
                 </optgroup>
-                <optgroup label="ตำแหน่งอื่นๆ">
-                  <option v-for="o in spareSpotOptions.others" :key="'o' + o.no" :value="o.no">{{ o.text }}</option>
-                </optgroup>
               </select>
-              <p v-if="!spareSpotOptions.needed.length" class="text-[10px] text-slate-400 mt-0.5">วัน/กะนี้ไม่มีจุดที่ค้างขอสแปร์ (หรือมีสแปร์ครบแล้ว) เลือกจากตำแหน่งอื่นได้</p>
+              <p v-if="!spareSpotOptions.needed.length" class="text-[10px] text-amber-700 mt-0.5">วัน/กะนี้ไม่มีตำแหน่ง Fix ที่ว่างให้ลงสแปร์</p>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div>
@@ -1988,7 +1982,7 @@
           <button @click="showSpareModal = false" class="w-1/2 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
             ยกเลิก
           </button>
-          <button @click="submitSpare" class="w-1/2 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition">
+          <button @click="submitSpare" :disabled="!spareSpotOptions.needed.length" :class="!spareSpotOptions.needed.length ? 'opacity-50 cursor-not-allowed' : ''" class="w-1/2 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition">
             บันทึกสแปร์
           </button>
         </div>
@@ -2020,10 +2014,6 @@
             </div>
           </div>
 
-          <div v-if="swapFiremanInfo.excess > 0" class="bg-amber-100/90 border border-amber-300 text-amber-950 rounded-lg p-2 text-[11px]">
-            🔥 วันนี้ Fireman มาเข้าเวร <b>{{ swapFiremanInfo.present }}/{{ FIREMAN_POSTS_PER_DAY }}</b> คน (เกิน {{ swapFiremanInfo.excess }} จุด) — สามารถย้ายไปช่วยจุดอื่นแบบลดจุดได้
-          </div>
-
           <div>
             <label class="text-[10px] text-slate-600 block">1. เลือก รปภ. ที่จะย้ายจุด (เฉพาะคนที่มาเข้าเวรกะนี้): <span class="text-red-500">*</span></label>
             <select v-model="swapForm.fromGuardNo" class="w-full bg-white border rounded p-1.5 font-semibold">
@@ -2044,14 +2034,6 @@
               </optgroup>
             </select>
           </div>
-
-          <label class="flex items-start gap-2 bg-white border border-sky-200 rounded-lg p-2 cursor-pointer">
-            <input type="checkbox" v-model="swapForm.reducePost" class="mt-0.5">
-            <span>
-              <b class="text-slate-800 block">ลดจุดเดิม (ไม่ต้องขอสแปร์มาแทนจุดเดิมของผู้ย้าย)</b>
-              <span class="text-[10px] text-slate-500">ใช้เมื่อ Fireman มาเกิน 3 คน หรือย้ายเพื่อยุบจุดเดิมโดยไม่ให้ระบบนับเป็นจุดขาด</span>
-            </span>
-          </label>
 
           <div>
             <label class="text-[10px] text-slate-600 block">หมายเหตุ (ถ้ามี):</label>

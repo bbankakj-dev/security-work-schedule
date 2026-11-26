@@ -1085,7 +1085,7 @@ createApp({
     // (เดิมเก็บเป็นค่าเดียวต่อแถว ทำให้ลาหลายวันแล้วชื่อคนแทนทับกัน/ยกเลิกวันหนึ่งแล้วหายหมด)
     function refreshReplacementLabel(row, cycleId) {
       const recs = leaveRecords.value
-        .filter(r => r.cycleId === cycleId && r.guardNo === row.no && r.replacementName)
+        .filter(r => cycleIdForRecordDate(r.date) === cycleId && r.guardNo === row.no && r.replacementName)
         .sort((a, b) => a.date.localeCompare(b.date));
       if (!recs.length) {
         row.replacementName = null;
@@ -1196,30 +1196,31 @@ createApp({
       persistLeaveRemove(record);
       const restoreShift = record.originalShift || record.shift;
 
-      if (record.cycleId === currentCycle.value.id) {
+      const recordCycleId = cycleIdForRecordDate(record.date) || record.cycleId;
+      if (recordCycleId === currentCycle.value.id) {
         // รอบที่เปิดอยู่: คืนกะในตารางที่แสดงอยู่
         const dayIdx = currentCycleDays.value.findIndex(d => d.dateString === record.date);
         const row = scheduleData.value.find(s => s.no === record.guardNo);
         if (row && dayIdx !== -1) {
           row.shifts[dayIdx] = restoreShift;
-          refreshReplacementLabel(row, record.cycleId);
+          refreshReplacementLabel(row, recordCycleId);
           saveSchedule(row);
         }
       } else {
         // รายการลาของรอบอื่น: แก้ในตารางที่บันทึกไว้ของรอบนั้นโดยตรง
-        const cycle = payrollCycles.value.find(c => c.id === record.cycleId);
+        const cycle = payrollCycles.value.find(c => c.id === recordCycleId);
         if (cycle) {
           const patch = row => {
             const idx = getCycleDays(cycle).findIndex(d => d.dateString === record.date);
             if (idx === -1) return false;
             row.shifts[idx] = restoreShift;
-            refreshReplacementLabel(row, record.cycleId);
+            refreshReplacementLabel(row, recordCycleId);
             return true;
           };
           if (CLOUD_ENABLED) {
-            cloudPatchRow(record.cycleId, record.guardNo, patch);
+            cloudPatchRow(recordCycleId, record.guardNo, patch);
           } else {
-            const key = `sws_schedule_v3_${record.cycleId}`;
+            const key = `sws_schedule_v3_${recordCycleId}`;
             const rows = safeParse(key, null);
             if (Array.isArray(rows)) {
               const row = rows.find(r => r.no === record.guardNo);
@@ -1395,6 +1396,19 @@ createApp({
         alert('⚠️ ไม่พบตำแหน่งที่เลือก');
         return;
       }
+      // Rebuild the fixed daily board at save time so a stale modal cannot assign
+      // a spare to a position that has since been filled or is outside the contract.
+      const idx = ctx ? utcDayNum(d.getFullYear(), d.getMonth(), d.getDate()) - ctx.startDayNum : -1;
+      const board = ctx && idx >= 0
+        ? buildDayShiftBoard(d, f.date, f.shift, rows, idx)
+        : null;
+      if (!board || !board.openSlots.some(slot => Number(slot.no) === posNo)) {
+        const assigned = spareArrivals.value.find(a => a.date === f.date && a.shift === f.shift && Number(a.positionNo) === posNo);
+        const swapped = positionSwaps.value.find(s => s.date === f.date && s.shift === f.shift && Number(s.toPositionNo) === posNo);
+        const occupant = assigned ? `สแปร์ "${assigned.name}"` : (swapped ? `รปภ.ประจำ "${swapped.fromGuardName}"` : `ตำแหน่ง ${posRow.position}`);
+        alert(`⚠️ บันทึกไม่ได้: จุด No.${posNo} ไม่ใช่ตำแหน่งว่างตามจำนวนที่ Fix ไว้ หรือมีผู้ปฏิบัติงานแล้ว (${occupant})`);
+        return;
+      }
       const dup = spareArrivals.value.some(a => a.date === f.date && a.shift === f.shift && String(a.name).trim().toLowerCase() === name.toLowerCase());
       if (dup) {
         alert('⚠️ มีชื่อนี้บันทึกไว้ในกะนี้แล้ว');
@@ -1409,16 +1423,6 @@ createApp({
       if (takenBySwap) {
         alert(`⚠️ ห้ามวางทับ! จุด No.${posNo} ${posRow.position} มี รปภ.ประจำ "${takenBySwap.fromGuardName}" สลับจุดมาลงอยู่แล้ว`);
         return;
-      }
-      if (ctx) {
-        const idx = utcDayNum(d.getFullYear(), d.getMonth(), d.getDate()) - ctx.startDayNum;
-        const s = (posRow.shifts && idx >= 0 && idx < posRow.shifts.length) ? posRow.shifts[idx] : null;
-        const rowShift = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-        const resolved = resolveDayShiftSwaps(f.date, f.shift);
-        if (!posRow.isSpare && rowShift === f.shift && !resolved.movedOut.has(posNo)) {
-          alert(`⚠️ ห้ามวางทับ! จุด No.${posNo} ${posRow.position} มี รปภ.ประจำ "${posRow.name}" ปฏิบัติงานอยู่แล้ว`);
-          return;
-        }
       }
       const rec = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1474,55 +1478,6 @@ createApp({
       return getPatternShift(idx, date) === 'N' ? 'N' : 'D';
     }
 
-    // ตำแหน่งที่ "ต้องมี" ตามสัญญา แม้ตัวประจำหยุด (H) ในวันนั้น (ค่าเริ่มต้น: Admin ปรับแก้ได้ภายหลัง)
-    //   day: 0=อา 1=จ ... 6=ส  |  ตรงกับยอดสัญญากะเช้า 19 (จ-ศ) / 17 (ส) / 16 (อา)
-    const REQUIRED_POSITION_DEFAULTS = [
-      { match: 'site manager', days: [1, 2, 3, 4, 5, 6], shift: 'D' },
-      { match: 'senior supervisor', days: [0, 1, 2, 3, 4, 5, 6], shift: 'D' },
-      { match: 'reception', days: [1, 2, 3, 4, 5], shift: 'D' }
-    ];
-    const requiredPositionRules = ref(REQUIRED_POSITION_DEFAULTS);
-
-    // คืน 'D' ถ้าแถวนี้เป็นตำแหน่งบังคับที่ตัวประจำหยุด (H) ในวันนั้น และตำแหน่งยังต้องมีคน
-    function requiredShiftOf(row, s, date) {
-      if (row.isSpare || s !== 'H') return null;
-      const pos = String(row.position || '').toLowerCase();
-      const rule = requiredPositionRules.value.find(r => pos.includes(r.match));
-      return rule && rule.days.includes(date.getDay()) ? rule.shift : null;
-    }
-
-    // จำนวนจุดที่ต้องขอสแปร์ของกะเช้าไม่เปลี่ยนตามการสลับจุด (ยอดสัญญาคิดรวมตำแหน่งบังคับและ Fireman 3 จุดไว้แล้ว)
-    //   - dropNos: จุดว่างสำรอง (โควตาสแปร์/ตำแหน่งว่าง) ที่ต้องหักออกเมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับโดยไม่ลดจุด
-    //   - openCounted: ตำแหน่งบังคับที่ตัวประจำหยุดและยังไม่มีคนแทน ที่ต้องนับเป็นจุดขอสแปร์เมื่อมีการลดจุดแต่ยังไม่ขึ้นแทนตำแหน่งบังคับ
-    function requiredReconcile(rows, dayIdx, date, dateString, resolvedD) {
-      const out = { dropNos: new Set(), openCounted: new Set() };
-      let reqCovered = 0;
-      let reducedCount = 0;
-      const reqOpen = [];
-      rows.forEach(r => {
-        const s = r.shifts[dayIdx];
-        if (requiredShiftOf(r, s, date) === 'D') {
-          if (resolvedD.movedInByTarget.has(r.no)) reqCovered++; else reqOpen.push(r);
-        }
-        if (!r.isSpare && (s === 'D' || s === 'PH') && resolvedD.reducedFrom.has(r.no) && !resolvedD.movedInByTarget.has(r.no)) {
-          reducedCount++;
-        }
-      });
-      if (!reqCovered && !reducedCount) return out;
-      const diff = reqCovered - reducedCount; // >0 = มีตำแหน่งบังคับเพิ่มขึ้นมา ต้องหักจุดว่างสำรอง, <0 = ลดจุดแล้วแต่ตำแหน่งบังคับยังว่าง
-      if (diff > 0) {
-        const arrs = arrivalsIndex.value[`${dateString}|D`] || [];
-        const assigned = new Set(arrs.filter(x => x.positionNo !== undefined && x.positionNo !== null && x.positionNo !== '').map(x => Number(x.positionNo)));
-        const cands = rows
-          .filter(r => r.isSpare && (r.shifts[dayIdx] === 'D' || r.shifts[dayIdx] === 'PH') && !resolvedD.movedInByTarget.has(r.no))
-          .sort((x, y) => (assigned.has(x.no) ? 1 : 0) - (assigned.has(y.no) ? 1 : 0) || (y.isReliefPool ? 1 : 0) - (x.isReliefPool ? 1 : 0) || y.no - x.no);
-        cands.slice(0, diff).forEach(r => out.dropNos.add(r.no));
-      } else if (diff < 0) {
-        reqOpen.slice(0, -diff).forEach(r => out.openCounted.add(r.no));
-      }
-      return out;
-    }
-
     function shiftEndMs(dateString, type) {
       const [y, m, d] = dateString.split('-').map(Number);
       const e = SHIFT_END[type];
@@ -1548,15 +1503,24 @@ createApp({
         const movedOut = new Set();
         const movedInByTarget = new Map();
         const swapByFrom = new Map();
-        const reducedFrom = new Set(); // ผู้ย้ายที่ติ๊ก "ลดจุด": จุดเดิมไม่ต้องมีคนแทน (ไม่ขอสแปร์ ไม่แสดงเป็นช่องว่างในใบลงชื่อ)
         list.forEach(s => {
-          if (s.reducePost) reducedFrom.add(Number(s.fromGuardNo));
           movedOut.add(Number(s.fromGuardNo));
           movedInByTarget.set(Number(s.toPositionNo), s);
           swapByFrom.set(Number(s.fromGuardNo), s);
         });
-        return { movedOut, movedInByTarget, swapByFrom, reducedFrom };
+        return { movedOut, movedInByTarget, swapByFrom };
       }
+
+      // กรองรายการคนลา / สแปร์ / สลับจุด เฉพาะที่มีวันที่อยู่ในรอบเงินเดือนที่กำลังเปิดดู
+      function isDateInCurrentCycle(dateStr) {
+        if (!dateStr) return false;
+        const d = parseDate(dateStr);
+        if (isNaN(d.getTime())) return false;
+        return cycleIdForDate(d) === currentCycle.value.id;
+      }
+      const currentCycleLeaves = computed(() => leaveRecords.value.filter(r => isDateInCurrentCycle(r.date)));
+      const currentCycleSpares = computed(() => spareArrivals.value.filter(r => isDateInCurrentCycle(r.date)));
+      const currentCycleSwaps = computed(() => positionSwaps.value.filter(s => isDateInCurrentCycle(s.date)));
 
       // สรุปยอดขอสแปร์ของวันหนึ่งๆ (ใช้ buildDayShiftBoard เดียวกับใบลงชื่อ/สลับจุด เพื่อให้ทุกหน้าตรงกัน 100%)
     function spareStatsFor(rows, dayIdx, date, dateString) {
@@ -1641,7 +1605,7 @@ createApp({
     }
 
     // สร้างบอร์ดตำแหน่งคงที่ของ 1 วัน/กะ: จับคู่คนประจำ, สลับจุด, และสแปร์ ลงในช่องที่ Fix ไว้
-    // คืน: { slots, openSlots, occupiedNos, excessWorkers, reducedNotes }
+    // คืน: { slots, openSlots, occupiedNos, excessWorkers }
     function buildDayShiftBoard(date, dateString, shiftType, rows, dayIdx) {
       const resolved = resolveDayShiftSwaps(dateString, shiftType);
       const arrs = arrivalsIndex.value[`${dateString}|${shiftType}`] || [];
@@ -1656,15 +1620,6 @@ createApp({
       const openSlots = [];
       const occupiedNos = new Set();
       const excessWorkers = [];
-      const reducedNotes = [];
-
-      rows.forEach(r => {
-        const s = (r.shifts && dayIdx >= 0 && dayIdx < r.shifts.length) ? r.shifts[dayIdx] : null;
-        if (!r.isSpare && resolved.movedOut.has(r.no) && resolved.reducedFrom.has(r.no) && !resolved.movedInByTarget.has(r.no)) {
-          const sw0 = resolved.swapByFrom.get(r.no);
-          reducedNotes.push(`ลดจุด ${r.position} (${r.name} ย้ายไปแทน ${sw0 ? sw0.toPositionName : 'จุดอื่น'})`);
-        }
-      });
 
       const groups = getFixedSlotGroups(date, shiftType);
       groups.forEach(g => {
@@ -1753,7 +1708,7 @@ createApp({
         });
       });
 
-      return { slots, openSlots, occupiedNos, excessWorkers, reducedNotes };
+      return { slots, openSlots, occupiedNos, excessWorkers };
     }
 
     // ตัวเลือก "เข้าแทนจุดไหน" ของฟอร์มบันทึกสแปร์: เฉพาะจุดที่ Fix ไว้และยังว่างอยู่ (ป้องกันวางทับคนที่มีชื่อแล้ว)
@@ -1770,11 +1725,7 @@ createApp({
         needed = board.openSlots.map(sp => ({ no: sp.no, text: sp.label }));
         occupied = board.occupiedNos;
       }
-      const nos = new Set(needed.map(x => x.no));
-      const others = rows
-        .filter(r => !nos.has(r.no) && !occupied.has(r.no))
-        .map(r => ({ no: r.no, text: spotText(r) }));
-      return { needed, others };
+      return { needed, occupied: [...occupied] };
     });
 
     // สรุปทุกวันในรอบที่เปิดอยู่ (ใช้ในหน้าสรุปการขอสแปร์)
@@ -1861,6 +1812,14 @@ createApp({
         if (m > 11) { m = 0; y += 1; }
       }
       return `${y}-${String(m + 1).padStart(2, '0')}`;
+    }
+
+    // The selected payroll cycle is determined from each record's work date,
+    // even if an older record has a missing or stale cycleId field.
+    function cycleIdForRecordDate(dateString) {
+      if (!dateString) return null;
+      const date = parseDate(dateString);
+      return isNaN(date.getTime()) ? null : cycleIdForDate(date);
     }
 
     // ตารางเวรของรอบใดก็ได้ (รอบที่เปิดอยู่ใช้ข้อมูลสด, รอบอื่นอ่านจากที่บันทึกไว้ ถ้าไม่มีให้คำนวณจากแพทเทิร์น)
@@ -2110,7 +2069,6 @@ createApp({
         ['D', 'N'].forEach(t => {
           const board = buildDayShiftBoard(date, day.dateString, t, ctx.rows, idx);
           out[t] = board.slots;
-          board.reducedNotes.forEach(msg => out.notes[t].push(msg));
           board.excessWorkers.forEach(w => {
             out.notes[t].push(`⚠️ เกินตำแหน่งหลัก (${w.position}): ${w.name} — กรุณาสลับจุดไปลงตำแหน่งที่ว่าง`);
           });
@@ -2154,7 +2112,6 @@ createApp({
       shift: 'D',
       fromGuardNo: '',
       toPositionNo: '',
-      reducePost: false,
       note: ''
     });
 
@@ -2236,36 +2193,10 @@ createApp({
       return { workingGuards, neededTargets, otherTargets: [] };
     });
 
-    // Fireman ต้องมีวันละ 3 จุด: วันที่มาครบ 4 คน (เช่น วันพฤหัส) ต้องมี 1 คนไปอยู่ตำแหน่งอื่น และจุด Fireman ที่ว่างลงไม่ต้องมีคนแทน (ลดจุด)
-    const FIREMAN_POSTS_PER_DAY = 3;
-    const swapFiremanInfo = computed(() => {
-      const f = swapForm.value;
-      const d = f.date ? parseDate(f.date) : null;
-      const ctx = d && !isNaN(d.getTime()) ? getCycleContext(cycleIdForDate(d)) : null;
-      if (!ctx) return { present: 0, excess: 0 };
-      const idx = utcDayNum(d.getFullYear(), d.getMonth(), d.getDate()) - ctx.startDayNum;
-      const shiftType = f.shift === 'N' ? 'N' : 'D';
-      const resolved = resolveDayShiftSwaps(f.date, shiftType);
-      let present = 0;
-      ctx.rows.forEach(r => {
-        if (r.isSpare || !/fire\s*man/i.test(String(r.position || ''))) return;
-        const s = r.shifts[idx];
-        const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-        if (t === shiftType && !resolved.movedOut.has(r.no)) present++;
-      });
-      return { present, excess: Math.max(0, present - FIREMAN_POSTS_PER_DAY) };
-    });
-    // เลือก Fireman ที่จะย้ายตอนมาเกิน 3 คน -> ติ๊ก "ลดจุด" ให้อัตโนมัติ (แก้ได้)
-    watch(() => swapForm.value.fromGuardNo, no => {
-      if (!no) { swapForm.value.reducePost = false; return; }
-      const g = swapOptions.value.workingGuards.find(x => x.no === Number(no));
-      swapForm.value.reducePost = !!(g && /fire\s*man/i.test(String(g.position || '')) && swapFiremanInfo.value.excess > 0);
-    });
-    // เปลี่ยนวันที่หรือกะในฟอร์ม -> รีเซ็ตผู้ย้ายและ reducePost เพื่อไม่ให้ค้างค่าของวันเดิม
+    // เปลี่ยนวันที่หรือกะในฟอร์ม -> รีเซ็ตผู้ย้ายเพื่อไม่ให้ค้างค่าของวันเดิม
     watch([() => swapForm.value.date, () => swapForm.value.shift], () => {
       swapForm.value.fromGuardNo = '';
       swapForm.value.toPositionNo = '';
-      swapForm.value.reducePost = false;
     });
 
     function openSwapModal(dateStr = null, shift = 'D', toPosNo = '') {
@@ -2274,7 +2205,6 @@ createApp({
         shift: shift || 'D',
         fromGuardNo: '',
         toPositionNo: toPosNo || '',
-        reducePost: false,
         note: ''
       };
       showSwapModal.value = true;
@@ -2335,7 +2265,6 @@ createApp({
         toPositionNo: toNo,
         toPositionName: toRow.isReliefPool ? 'Spare Relief Pool' : toRow.position,
         toPersonName: toRow.isSpare ? 'ตำแหน่งว่าง' : toRow.name,
-        reducePost: !!f.reducePost,
         note: (f.note || '').trim(),
         loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
         timestamp: new Date().toISOString()
@@ -2345,7 +2274,7 @@ createApp({
       sortPositionSwaps();
       persistSwapAdd(rec);
       showSwapModal.value = false;
-      alert(`✅ บันทึกสลับจุดเรียบร้อยแล้ว${rec.reducePost ? ' (ลดจุดเดิม)' : ''}\n${rec.fromGuardName} (${rec.fromPositionName})\n➔ ไปทำแทน: No.${rec.toPositionNo} ${rec.toPositionName}\nวันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
+      alert(`✅ บันทึกสลับจุดเรียบร้อยแล้ว\n${rec.fromGuardName} (${rec.fromPositionName})\n➔ ไปทำแทน: No.${rec.toPositionNo} ${rec.toPositionName}\nวันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
     }
 
     function cancelSwap(rec) {
@@ -2598,7 +2527,7 @@ createApp({
 
           const phDays = phDaysWorked + phDaysOff;
           // ตรวจวันลาจาก leaveRecords ในรอบนี้ด้วย เพื่อความแม่นยำ
-          const leaveRecCount = leaveRecords.value.filter(r => r.cycleId === cycleId && r.guardNo === guard.no).length;
+          const leaveRecCount = leaveRecords.value.filter(r => cycleIdForRecordDate(r.date) === cycleId && r.guardNo === guard.no).length;
           const totalLeave = Math.max(leaveDays, leaveRecCount);
           const workDays = normalDays + phDaysWorked;
           const eligibleDiligence = !guard.isSpare && totalLeave === 0 && workDays >= Number(cfg.diligenceMinDays || 20);
@@ -2801,8 +2730,8 @@ createApp({
     const selectedGuardLeaveDays = computed(() => {
       if (!selectedGuard.value) return 0;
       const g = selectedGuard.value;
-      // นับจาก leaveRecords
-      const fromLeave = leaveRecords.value.filter(r => r.guardNo === g.no).length;
+      // นับจาก leaveRecords เฉพาะในรอบที่เปิดอยู่
+      const fromLeave = currentCycleLeaves.value.filter(r => r.guardNo === g.no).length;
       // นับจากเซลล์ที่เป็น L ในตาราง (กรณีแก้ไขตรงๆ)
       const fromShift = (g.shifts || []).filter(s => s === 'L').length;
       return Math.max(fromLeave, fromShift);
@@ -3234,12 +3163,13 @@ createApp({
       removeRegularSpare,
       pickRegularSpare,
       // สลับจุดภายในกะ (Sup / Admin)
+      currentCycleLeaves,
+      currentCycleSpares,
+      currentCycleSwaps,
       positionSwaps,
       showSwapModal,
       swapForm,
       swapOptions,
-      swapFiremanInfo,
-      FIREMAN_POSTS_PER_DAY,
       openSwapModal,
       submitSwap,
       cancelSwap,
