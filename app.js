@@ -1474,28 +1474,24 @@ createApp({
     }
 
     // จำนวนจุดที่ต้องขอสแปร์ของกะเช้าไม่เปลี่ยนตามการสลับจุด (ยอดสัญญาคิดรวมตำแหน่งบังคับและ Fireman 3 จุดไว้แล้ว)
-    //   การสลับจุดที่เกี่ยวกับตำแหน่งบังคับ / ลดจุด จึงต้องปรับรายการจุดให้ยอดรวมเท่าเดิม:
-    //   - dropNos: จุดว่างสำรอง (โควตาสแปร์/ตำแหน่งว่าง) ที่ต้องหักออก
-    //   - openCounted: ตำแหน่งบังคับที่ตัวประจำหยุดและยังไม่มีคนแทน ที่ต้องนับเป็นจุดขอสแปร์
+    //   - dropNos: จุดว่างสำรอง (โควตาสแปร์/ตำแหน่งว่าง) ที่ต้องหักออกเมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับโดยไม่ลดจุด
+    //   - openCounted: ตำแหน่งบังคับที่ตัวประจำหยุดและยังไม่มีคนแทน ที่ต้องนับเป็นจุดขอสแปร์เมื่อมีการลดจุดแต่ยังไม่ขึ้นแทนตำแหน่งบังคับ
     function requiredReconcile(rows, dayIdx, date, dateString, resolvedD) {
       const out = { dropNos: new Set(), openCounted: new Set() };
       let reqCovered = 0;
+      let reducedCount = 0;
       const reqOpen = [];
-      let base = 0, coveredBase = 0, movedOutPaid = 0;
       rows.forEach(r => {
         const s = r.shifts[dayIdx];
         if (requiredShiftOf(r, s, date) === 'D') {
           if (resolvedD.movedInByTarget.has(r.no)) reqCovered++; else reqOpen.push(r);
         }
-        const isBaseSpot = (r.isSpare && (s === 'D' || s === 'PH')) || (!r.isSpare && s === 'L' && leaveShiftOf(r, date, dateString) === 'D');
-        if (isBaseSpot) {
-          base++;
-          if (resolvedD.movedInByTarget.has(r.no)) coveredBase++;
+        if (!r.isSpare && (s === 'D' || s === 'PH') && resolvedD.reducedFrom.has(r.no) && !resolvedD.movedInByTarget.has(r.no)) {
+          reducedCount++;
         }
-        if (!r.isSpare && (s === 'D' || s === 'PH') && resolvedD.movedOut.has(r.no) && !resolvedD.reducedFrom.has(r.no)) movedOutPaid++;
       });
-      if (!reqCovered && !resolvedD.reducedFrom.size) return out;
-      const diff = movedOutPaid - coveredBase; // >0 = มีจุดเกิน ต้องหักจุดว่างสำรอง, <0 = ขาดจุด ต้องนับตำแหน่งบังคับที่ยังว่างเป็นจุด
+      if (!reqCovered && !reducedCount) return out;
+      const diff = reqCovered - reducedCount; // >0 = มีตำแหน่งบังคับเพิ่มขึ้นมา ต้องหักจุดว่างสำรอง, <0 = ลดจุดแล้วแต่ตำแหน่งบังคับยังว่าง
       if (diff > 0) {
         const arrs = arrivalsIndex.value[`${dateString}|D`] || [];
         const assigned = new Set(arrs.filter(x => x.positionNo !== undefined && x.positionNo !== null && x.positionNo !== '').map(x => Number(x.positionNo)));
@@ -2189,6 +2185,12 @@ createApp({
       const g = swapOptions.value.workingGuards.find(x => x.no === Number(no));
       swapForm.value.reducePost = !!(g && /fire\s*man/i.test(String(g.position || '')) && swapFiremanInfo.value.excess > 0);
     });
+    // เปลี่ยนวันที่หรือกะในฟอร์ม -> รีเซ็ตผู้ย้ายและ reducePost เพื่อไม่ให้ค้างค่าของวันเดิม
+    watch([() => swapForm.value.date, () => swapForm.value.shift], () => {
+      swapForm.value.fromGuardNo = '';
+      swapForm.value.toPositionNo = '';
+      swapForm.value.reducePost = false;
+    });
 
     function openSwapModal(dateStr = null, shift = 'D', toPosNo = '') {
       swapForm.value = {
@@ -2563,16 +2565,16 @@ createApp({
       if (!isAdmin.value) return;
       const lines = [];
       lines.push([`สรุปอัตราค่าแรงและเงินเดือน ${currentCycle.value.name}`]);
-      lines.push(['No.', 'รหัส', 'ชื่อ-สกุล', 'ตำแหน่งหลัก', 'วันปกติ', 'วันนักขัตฤกษ์', 'รวมวันทำงาน', 'วันลา', 'สลับจุด(วัน)', 'ค่าแรงปกติ(400)', 'OT 1.25x(250)', 'ค่าแรง PH(400)', 'OT 2.5x(500)', 'ค่าตำแหน่งรวม', 'รายละเอียดค่าตำแหน่ง', 'เบี้ยขยัน(40/วัน)', 'รวมค่าแรงสุทธิ(บาท)']);
+      lines.push(['No.', 'รหัส', 'ชื่อ-สกุล', 'ตำแหน่งหลัก', 'วันปกติ', 'PH(ทั้งหมด)', 'มาทำ PH', 'หยุด PH', 'รวมวันทำงาน', 'วันลา', 'สลับจุด(วัน)', 'ค่าแรงปกติ(400)', 'OT 1.25x(250)', 'ค่าแรง PH(400)', 'OT 2.5x(500)', 'ค่าตำแหน่งรวม', 'รายละเอียดค่าตำแหน่ง', 'เบี้ยขยัน(40/วัน)', 'รวมค่าแรงสุทธิ(บาท)']);
       wageSummaries.value.forEach(r => {
         const bd = r.positionBreakdown.map(p => `${p.label} ${p.days}วันx${p.rate}=${p.amount}`).join(' | ');
         lines.push([
-          r.no, r.code || '-', r.name, r.position, r.normalDays, r.phDays, r.workDays, r.leaveDays, r.swappedDays,
+          r.no, r.code || '-', r.name, r.position, r.normalDays, r.phDays, r.phDaysWorked, r.phDaysOff, r.workDays, r.leaveDays, r.swappedDays,
           r.totalBase, r.totalOt125, r.totalHolidayBase, r.totalOt250, r.totalPositionPay, bd, r.diligencePay, r.totalPay
         ]);
       });
       const g = wageGrandTotals.value;
-      lines.push(['', '', 'รวมทั้งหมด (เฉพาะคนประจำ)', '', '', '', g.workDays, '', '', g.base, g.ot125, g.holBase, g.ot250, g.positionPay, '', g.diligence, g.total]);
+      lines.push(['', '', 'รวมทั้งหมด (เฉพาะคนประจำ)', '', '', '', '', '', g.workDays, '', '', g.base, g.ot125, g.holBase, g.ot250, g.positionPay, '', g.diligence, g.total]);
 
       const blob = new Blob(['\ufeff' + lines.map(l => l.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
       const url = URL.createObjectURL(blob);
