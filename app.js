@@ -1473,20 +1473,40 @@ createApp({
       return rule && rule.days.includes(date.getDay()) ? rule.shift : null;
     }
 
-    // ยอดสัญญาคิดรวมตำแหน่งบังคับไว้แล้ว: เมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับที่ตัวประจำหยุด
-    // ให้หักจุดว่างสำรอง (โควตาสแปร์/ตำแหน่งว่าง) ออก 1 จุดต่อ 1 ตำแหน่ง ส่วนจุดเดิมที่ผู้ย้ายทิ้งไว้นับเป็นจุดขอสแปร์แทน
-    function requiredCoverDrops(rows, dayIdx, date, dateString, resolvedD) {
-      let k = 0;
+    // จำนวนจุดที่ต้องขอสแปร์ของกะเช้าไม่เปลี่ยนตามการสลับจุด (ยอดสัญญาคิดรวมตำแหน่งบังคับและ Fireman 3 จุดไว้แล้ว)
+    //   การสลับจุดที่เกี่ยวกับตำแหน่งบังคับ / ลดจุด จึงต้องปรับรายการจุดให้ยอดรวมเท่าเดิม:
+    //   - dropNos: จุดว่างสำรอง (โควตาสแปร์/ตำแหน่งว่าง) ที่ต้องหักออก
+    //   - openCounted: ตำแหน่งบังคับที่ตัวประจำหยุดและยังไม่มีคนแทน ที่ต้องนับเป็นจุดขอสแปร์
+    function requiredReconcile(rows, dayIdx, date, dateString, resolvedD) {
+      const out = { dropNos: new Set(), openCounted: new Set() };
+      let reqCovered = 0;
+      const reqOpen = [];
+      let base = 0, coveredBase = 0, movedOutPaid = 0;
       rows.forEach(r => {
-        if (requiredShiftOf(r, r.shifts[dayIdx], date) === 'D' && resolvedD.movedInByTarget.has(r.no)) k++;
+        const s = r.shifts[dayIdx];
+        if (requiredShiftOf(r, s, date) === 'D') {
+          if (resolvedD.movedInByTarget.has(r.no)) reqCovered++; else reqOpen.push(r);
+        }
+        const isBaseSpot = (r.isSpare && (s === 'D' || s === 'PH')) || (!r.isSpare && s === 'L' && leaveShiftOf(r, date, dateString) === 'D');
+        if (isBaseSpot) {
+          base++;
+          if (resolvedD.movedInByTarget.has(r.no)) coveredBase++;
+        }
+        if (!r.isSpare && (s === 'D' || s === 'PH') && resolvedD.movedOut.has(r.no) && !resolvedD.reducedFrom.has(r.no)) movedOutPaid++;
       });
-      if (!k) return new Set();
-      const arrs = arrivalsIndex.value[`${dateString}|D`] || [];
-      const assigned = new Set(arrs.filter(x => x.positionNo !== undefined && x.positionNo !== null && x.positionNo !== '').map(x => Number(x.positionNo)));
-      const cands = rows
-        .filter(r => r.isSpare && (r.shifts[dayIdx] === 'D' || r.shifts[dayIdx] === 'PH') && !resolvedD.movedInByTarget.has(r.no))
-        .sort((x, y) => (assigned.has(x.no) ? 1 : 0) - (assigned.has(y.no) ? 1 : 0) || (y.isReliefPool ? 1 : 0) - (x.isReliefPool ? 1 : 0) || y.no - x.no);
-      return new Set(cands.slice(0, k).map(r => r.no));
+      if (!reqCovered && !resolvedD.reducedFrom.size) return out;
+      const diff = movedOutPaid - coveredBase; // >0 = มีจุดเกิน ต้องหักจุดว่างสำรอง, <0 = ขาดจุด ต้องนับตำแหน่งบังคับที่ยังว่างเป็นจุด
+      if (diff > 0) {
+        const arrs = arrivalsIndex.value[`${dateString}|D`] || [];
+        const assigned = new Set(arrs.filter(x => x.positionNo !== undefined && x.positionNo !== null && x.positionNo !== '').map(x => Number(x.positionNo)));
+        const cands = rows
+          .filter(r => r.isSpare && (r.shifts[dayIdx] === 'D' || r.shifts[dayIdx] === 'PH') && !resolvedD.movedInByTarget.has(r.no))
+          .sort((x, y) => (assigned.has(x.no) ? 1 : 0) - (assigned.has(y.no) ? 1 : 0) || (y.isReliefPool ? 1 : 0) - (x.isReliefPool ? 1 : 0) || y.no - x.no);
+        cands.slice(0, diff).forEach(r => out.dropNos.add(r.no));
+      } else if (diff < 0) {
+        reqOpen.slice(0, -diff).forEach(r => out.openCounted.add(r.no));
+      }
+      return out;
     }
 
     function shiftEndMs(dateString, type) {
@@ -1514,12 +1534,14 @@ createApp({
         const movedOut = new Set();
         const movedInByTarget = new Map();
         const swapByFrom = new Map();
+        const reducedFrom = new Set(); // ผู้ย้ายที่ติ๊ก "ลดจุด": จุดเดิมไม่ต้องมีคนแทน (ไม่ขอสแปร์ ไม่แสดงเป็นช่องว่างในใบลงชื่อ)
         list.forEach(s => {
+          if (s.reducePost) reducedFrom.add(Number(s.fromGuardNo));
           movedOut.add(Number(s.fromGuardNo));
           movedInByTarget.set(Number(s.toPositionNo), s);
           swapByFrom.set(Number(s.fromGuardNo), s);
         });
-        return { movedOut, movedInByTarget, swapByFrom };
+        return { movedOut, movedInByTarget, swapByFrom, reducedFrom };
       }
 
       // สรุปยอดขอสแปร์ของวันหนึ่งๆ (rows = ตารางเวรของรอบที่วันนั้นสังกัด, dayIdx = ลำดับวันในรอบ)
@@ -1528,14 +1550,18 @@ createApp({
     function spareStatsFor(rows, dayIdx, date, dateString) {
       const spots = { D: [], N: [] };
       const resolved = { D: resolveDayShiftSwaps(dateString, 'D'), N: resolveDayShiftSwaps(dateString, 'N') };
-      const dropD = requiredCoverDrops(rows, dayIdx, date, dateString, resolved.D);
+      const recD = requiredReconcile(rows, dayIdx, date, dateString, resolved.D);
       rows.forEach(r => {
         const s = r.shifts[dayIdx];
         if (r.isSpare) {
           const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-          if (t && !resolved[t].movedInByTarget.has(r.no) && !(t === 'D' && dropD.has(r.no))) {
+          if (t && !resolved[t].movedInByTarget.has(r.no) && !(t === 'D' && recD.dropNos.has(r.no))) {
             spots[t].push({ no: r.no, kind: r.isReliefPool ? 'pool' : 'vacant', text: spotText(r) });
           }
+          return;
+        }
+        if (recD.openCounted.has(r.no)) {
+          spots.D.push({ no: r.no, kind: 'required', text: `${spotText(r)} (ตัวประจำหยุด - ต้องมีตำแหน่ง)` });
           return;
         }
         if (s === 'L') {
@@ -1546,7 +1572,7 @@ createApp({
           return;
         }
         const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-        if (t && resolved[t].movedOut.has(r.no) && !resolved[t].movedInByTarget.has(r.no)) {
+        if (t && resolved[t].movedOut.has(r.no) && !resolved[t].reducedFrom.has(r.no) && !resolved[t].movedInByTarget.has(r.no)) {
           const sw = resolved[t].swapByFrom.get(r.no);
           spots[t].push({ no: r.no, kind: 'vacant', text: `${spotText(r)} (ย้ายไปแทน ${sw ? sw.toPositionName : 'จุดอื่น'})` });
         }
@@ -1935,7 +1961,7 @@ createApp({
         if (!ctx) return out;
         const idx = utcDayNum(date.getFullYear(), date.getMonth(), date.getDate()) - ctx.startDayNum;
         const resolved = { D: resolveDayShiftSwaps(day.dateString, 'D'), N: resolveDayShiftSwaps(day.dateString, 'N') };
-        const dropD = requiredCoverDrops(ctx.rows, idx, date, day.dateString, resolved.D);
+        const recD = requiredReconcile(ctx.rows, idx, date, day.dateString, resolved.D);
         ctx.rows.forEach(r => {
           const s = r.shifts[idx];
           let t = null;
@@ -1945,10 +1971,16 @@ createApp({
           const reqOff = requiredShiftOf(r, s, date) === 'D'; // ตำแหน่งบังคับที่ตัวประจำหยุด: ตำแหน่งยังต้องมีคน
           if (reqOff) t = 'D';
           if (t !== 'D' && t !== 'N') return;
-          if (t === 'D' && r.isSpare && dropD.has(r.no)) return; // จุดว่างสำรองที่ถูกหักเมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับ
+          if (t === 'D' && r.isSpare && recD.dropNos.has(r.no)) return; // จุดว่างสำรองที่ถูกหักเมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับ
 
           const swIn = resolved[t].movedInByTarget.get(r.no);
           const isMovedOut = resolved[t].movedOut.has(r.no);
+          if (isMovedOut && resolved[t].reducedFrom.has(r.no) && !swIn) {
+            // ลดจุด: จุดเดิมของผู้ย้ายไม่ต้องมีคนแทน ไม่แสดงเป็นช่องว่าง (บันทึกไว้ในสรุปใต้ตาราง)
+            const sw0 = resolved[t].swapByFrom.get(r.no);
+            out.notes[t].push(`ลดจุด ${r.position} (${r.name} ย้ายไปแทน ${sw0 ? sw0.toPositionName : 'จุดอื่น'})`);
+            return;
+          }
           if (swIn) {
             out[t].push({
               no: r.no,
@@ -2028,6 +2060,7 @@ createApp({
       shift: 'D',
       fromGuardNo: '',
       toPositionNo: '',
+      reducePost: false,
       note: ''
     });
 
@@ -2131,12 +2164,39 @@ createApp({
       return { workingGuards, neededTargets, otherTargets };
     });
 
+    // Fireman ต้องมีวันละ 3 จุด: วันที่มาครบ 4 คน (เช่น วันพฤหัส) ต้องมี 1 คนไปอยู่ตำแหน่งอื่น และจุด Fireman ที่ว่างลงไม่ต้องมีคนแทน (ลดจุด)
+    const FIREMAN_POSTS_PER_DAY = 3;
+    const swapFiremanInfo = computed(() => {
+      const f = swapForm.value;
+      const d = f.date ? parseDate(f.date) : null;
+      const ctx = d && !isNaN(d.getTime()) ? getCycleContext(cycleIdForDate(d)) : null;
+      if (!ctx) return { present: 0, excess: 0 };
+      const idx = utcDayNum(d.getFullYear(), d.getMonth(), d.getDate()) - ctx.startDayNum;
+      const shiftType = f.shift === 'N' ? 'N' : 'D';
+      const resolved = resolveDayShiftSwaps(f.date, shiftType);
+      let present = 0;
+      ctx.rows.forEach(r => {
+        if (r.isSpare || !/fire\s*man/i.test(String(r.position || ''))) return;
+        const s = r.shifts[idx];
+        const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
+        if (t === shiftType && !resolved.movedOut.has(r.no)) present++;
+      });
+      return { present, excess: Math.max(0, present - FIREMAN_POSTS_PER_DAY) };
+    });
+    // เลือก Fireman ที่จะย้ายตอนมาเกิน 3 คน -> ติ๊ก "ลดจุด" ให้อัตโนมัติ (แก้ได้)
+    watch(() => swapForm.value.fromGuardNo, no => {
+      if (!no) { swapForm.value.reducePost = false; return; }
+      const g = swapOptions.value.workingGuards.find(x => x.no === Number(no));
+      swapForm.value.reducePost = !!(g && /fire\s*man/i.test(String(g.position || '')) && swapFiremanInfo.value.excess > 0);
+    });
+
     function openSwapModal(dateStr = null, shift = 'D', toPosNo = '') {
       swapForm.value = {
         date: dateStr || fmtDate(new Date()),
         shift: shift || 'D',
         fromGuardNo: '',
         toPositionNo: toPosNo || '',
+        reducePost: false,
         note: ''
       };
       showSwapModal.value = true;
@@ -2182,6 +2242,7 @@ createApp({
         toPositionNo: toNo,
         toPositionName: toRow.isReliefPool ? 'Spare Relief Pool' : toRow.position,
         toPersonName: toRow.isSpare ? 'ตำแหน่งว่าง' : toRow.name,
+        reducePost: !!f.reducePost,
         note: (f.note || '').trim(),
         loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
         timestamp: new Date().toISOString()
@@ -2191,7 +2252,7 @@ createApp({
       sortPositionSwaps();
       persistSwapAdd(rec);
       showSwapModal.value = false;
-      alert(`✅ บันทึกสลับจุดเรียบร้อยแล้ว\n${rec.fromGuardName} (${rec.fromPositionName})\n➔ ไปทำแทน: No.${rec.toPositionNo} ${rec.toPositionName}\nวันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
+      alert(`✅ บันทึกสลับจุดเรียบร้อยแล้ว${rec.reducePost ? ' (ลดจุดเดิม)' : ''}\n${rec.fromGuardName} (${rec.fromPositionName})\n➔ ไปทำแทน: No.${rec.toPositionNo} ${rec.toPositionName}\nวันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
     }
 
     function cancelSwap(rec) {
@@ -3084,6 +3145,8 @@ createApp({
       showSwapModal,
       swapForm,
       swapOptions,
+      swapFiremanInfo,
+      FIREMAN_POSTS_PER_DAY,
       openSwapModal,
       submitSwap,
       cancelSwap,

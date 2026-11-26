@@ -1466,6 +1466,7 @@
                   <td class="p-2.5 font-bold text-sky-800">
                     ➔ No.{{ sw.toPositionNo }} {{ sw.toPositionName }}
                     <span class="text-[10px] text-slate-500 font-normal block">({{ sw.toPersonName }})</span>
+                    <span v-if="sw.reducePost" class="text-[10px] text-amber-700 font-semibold block">ลดจุดเดิม</span>
                   </td>
                   <td class="p-2.5 text-slate-500">{{ sw.note || '-' }}</td>
                   <td class="p-2.5 text-slate-500 text-[11px]">{{ sw.loggedBy }}</td>
@@ -2031,6 +2032,14 @@
               </optgroup>
             </select>
           </div>
+
+          <div v-if="swapFiremanInfo.excess > 0" class="bg-amber-50 border border-amber-200 text-amber-900 rounded p-2 text-[11px]">
+            🔥 วัน/กะนี้ Fireman มา {{ swapFiremanInfo.present }} คน (ต้องมี {{ FIREMAN_POSTS_PER_DAY }} จุด) ให้ย้าย Fireman 1 คนไปตำแหน่งอื่น แล้วติ๊ก “ลดจุด” ด้านล่าง
+          </div>
+          <label class="flex items-start gap-2 bg-white border rounded p-2 cursor-pointer">
+            <input type="checkbox" v-model="swapForm.reducePost" class="mt-0.5">
+            <span><b>ลดจุดเดิม</b> <span class="text-slate-500">จุดที่ผู้ย้ายออกไปไม่ต้องมีคนแทน (ไม่ขอสแปร์ และไม่เหลือช่องว่างในใบลงชื่อ)</span></span>
+          </label>
 
           <div>
             <label class="text-[10px] text-slate-600 block">หมายเหตุ (ถ้ามี):</label>
