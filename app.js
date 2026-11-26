@@ -1622,6 +1622,9 @@ createApp({
       const excessWorkers = [];
 
       const groups = getFixedSlotGroups(date, shiftType);
+      const dailyworkCodes = shiftType === 'D'
+        ? { siteManager: ['D01'], fireman: ['D13', 'D14', 'D24'], seniorSup: ['D02'], supervisor: ['D03'], asstSup: ['D04'], cctv: ['D05'], driver: ['D06'], admin1: ['D07'], admin2: ['D08'], guard: ['D09', 'D10', 'D11', 'D12', 'D17', 'D18'], reception: ['D15', 'D16'] }
+        : { supervisor: ['N01'], asstSup: ['N02'], cctv: ['N14'], driver: ['N03'], guard: ['N04', 'N05', 'N06', 'N07', 'N08', 'N09'] };
       groups.forEach(g => {
         if (g.count <= 0) return;
         const cands = rows.filter(r => g.match(r)).map(r => {
@@ -1648,9 +1651,10 @@ createApp({
           }
         });
 
-        picked.forEach(c => {
+        picked.forEach((c, slotIndex) => {
           const { r, s, swIn, spIn, isMovedOut, isWorkingHere, isLeave } = c;
           const posLabel = r.position;
+          const dailywork = (dailyworkCodes[g.key] || [])[slotIndex] || '';
           if (swIn) {
             occupiedNos.add(r.no);
             slots.push({
@@ -1658,6 +1662,7 @@ createApp({
               code: swIn.fromGuardCode || '',
               name: `${swIn.fromGuardName} (ย้ายจุด)`,
               position: posLabel,
+              dailywork,
               kind: 'swapped_in',
               leaveName: isLeave ? (r.name || '') : '',
               swapNote: `ย้ายมาจาก ${swIn.fromPositionName} (${swIn.fromGuardName})`
@@ -1669,6 +1674,7 @@ createApp({
               code: spIn.code || '',
               name: `${spIn.name} (สแปร์)`,
               position: posLabel,
+              dailywork,
               kind: 'spare_in',
               leaveName: isLeave ? (r.name || '') : '',
               swapNote: `สแปร์เข้าแทน (${spIn.name})`
@@ -1680,6 +1686,7 @@ createApp({
               code: r.code || '',
               name: r.name || '',
               position: posLabel,
+              dailywork,
               kind: 'regular',
               leaveName: '',
               swapNote: ''
@@ -1696,6 +1703,7 @@ createApp({
               code: '',
               name: '',
               position: posLabel,
+              dailywork,
               kind,
               leaveName: isLeave ? (r.name || '') : '',
               swapNote,
