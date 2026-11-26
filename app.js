@@ -1456,6 +1456,39 @@ createApp({
       return getPatternShift(idx, date) === 'N' ? 'N' : 'D';
     }
 
+    // ตำแหน่งที่ "ต้องมี" ตามสัญญา แม้ตัวประจำหยุด (H) ในวันนั้น (ค่าเริ่มต้น: Admin ปรับแก้ได้ภายหลัง)
+    //   day: 0=อา 1=จ ... 6=ส  |  ตรงกับยอดสัญญากะเช้า 19 (จ-ศ) / 17 (ส) / 16 (อา)
+    const REQUIRED_POSITION_DEFAULTS = [
+      { match: 'site manager', days: [1, 2, 3, 4, 5, 6], shift: 'D' },
+      { match: 'senior supervisor', days: [0, 1, 2, 3, 4, 5, 6], shift: 'D' },
+      { match: 'reception', days: [1, 2, 3, 4, 5], shift: 'D' }
+    ];
+    const requiredPositionRules = ref(REQUIRED_POSITION_DEFAULTS);
+
+    // คืน 'D' ถ้าแถวนี้เป็นตำแหน่งบังคับที่ตัวประจำหยุด (H) ในวันนั้น และตำแหน่งยังต้องมีคน
+    function requiredShiftOf(row, s, date) {
+      if (row.isSpare || s !== 'H') return null;
+      const pos = String(row.position || '').toLowerCase();
+      const rule = requiredPositionRules.value.find(r => pos.includes(r.match));
+      return rule && rule.days.includes(date.getDay()) ? rule.shift : null;
+    }
+
+    // ยอดสัญญาคิดรวมตำแหน่งบังคับไว้แล้ว: เมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับที่ตัวประจำหยุด
+    // ให้หักจุดว่างสำรอง (โควตาสแปร์/ตำแหน่งว่าง) ออก 1 จุดต่อ 1 ตำแหน่ง ส่วนจุดเดิมที่ผู้ย้ายทิ้งไว้นับเป็นจุดขอสแปร์แทน
+    function requiredCoverDrops(rows, dayIdx, date, dateString, resolvedD) {
+      let k = 0;
+      rows.forEach(r => {
+        if (requiredShiftOf(r, r.shifts[dayIdx], date) === 'D' && resolvedD.movedInByTarget.has(r.no)) k++;
+      });
+      if (!k) return new Set();
+      const arrs = arrivalsIndex.value[`${dateString}|D`] || [];
+      const assigned = new Set(arrs.filter(x => x.positionNo !== undefined && x.positionNo !== null && x.positionNo !== '').map(x => Number(x.positionNo)));
+      const cands = rows
+        .filter(r => r.isSpare && (r.shifts[dayIdx] === 'D' || r.shifts[dayIdx] === 'PH') && !resolvedD.movedInByTarget.has(r.no))
+        .sort((x, y) => (assigned.has(x.no) ? 1 : 0) - (assigned.has(y.no) ? 1 : 0) || (y.isReliefPool ? 1 : 0) - (x.isReliefPool ? 1 : 0) || y.no - x.no);
+      return new Set(cands.slice(0, k).map(r => r.no));
+    }
+
     function shiftEndMs(dateString, type) {
       const [y, m, d] = dateString.split('-').map(Number);
       const e = SHIFT_END[type];
@@ -1495,11 +1528,12 @@ createApp({
     function spareStatsFor(rows, dayIdx, date, dateString) {
       const spots = { D: [], N: [] };
       const resolved = { D: resolveDayShiftSwaps(dateString, 'D'), N: resolveDayShiftSwaps(dateString, 'N') };
+      const dropD = requiredCoverDrops(rows, dayIdx, date, dateString, resolved.D);
       rows.forEach(r => {
         const s = r.shifts[dayIdx];
         if (r.isSpare) {
           const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-          if (t && !resolved[t].movedInByTarget.has(r.no)) {
+          if (t && !resolved[t].movedInByTarget.has(r.no) && !(t === 'D' && dropD.has(r.no))) {
             spots[t].push({ no: r.no, kind: r.isReliefPool ? 'pool' : 'vacant', text: spotText(r) });
           }
           return;
@@ -1901,13 +1935,17 @@ createApp({
         if (!ctx) return out;
         const idx = utcDayNum(date.getFullYear(), date.getMonth(), date.getDate()) - ctx.startDayNum;
         const resolved = { D: resolveDayShiftSwaps(day.dateString, 'D'), N: resolveDayShiftSwaps(day.dateString, 'N') };
+        const dropD = requiredCoverDrops(ctx.rows, idx, date, day.dateString, resolved.D);
         ctx.rows.forEach(r => {
           const s = r.shifts[idx];
           let t = null;
           if (s === 'N') t = 'N';
           else if (s === 'D' || s === 'PH') t = 'D';
           else if (s === 'L') t = leaveShiftOf(r, date, day.dateString); // คนลา: จุดยังอยู่ แต่เว้นชื่อรอสแปร์
+          const reqOff = requiredShiftOf(r, s, date) === 'D'; // ตำแหน่งบังคับที่ตัวประจำหยุด: ตำแหน่งยังต้องมีคน
+          if (reqOff) t = 'D';
           if (t !== 'D' && t !== 'N') return;
+          if (t === 'D' && r.isSpare && dropD.has(r.no)) return; // จุดว่างสำรองที่ถูกหักเมื่อมีคนสลับขึ้นแทนตำแหน่งบังคับ
 
           const swIn = resolved[t].movedInByTarget.get(r.no);
           const isMovedOut = resolved[t].movedOut.has(r.no);
@@ -1920,6 +1958,17 @@ createApp({
               kind: 'swapped_in',
               leaveName: s === 'L' ? (r.name || '') : '',
               swapNote: `ย้ายมาจาก ${swIn.fromPositionName} (${swIn.fromGuardName})`
+            });
+            return;
+          }
+
+          if (reqOff) {
+            out[t].push({
+              no: r.no, code: '', name: '',
+              position: r.position,
+              kind: 'required_open',
+              leaveName: '',
+              swapNote: `ตัวประจำหยุด (${r.name}) ตำแหน่งนี้ต้องมีคน รอสลับขึ้นแทน`
             });
             return;
           }
@@ -1944,6 +1993,7 @@ createApp({
             if (r.kind === 'leave') out.notes[t].push(`รปภ.ประจำ ${r.leaveName} ตำแหน่ง ${r.position} ลำดับ ${n} (ลา)`);
             else if (r.kind === 'vacant') out.notes[t].push(`ตำแหน่ง ${r.position} ลำดับ ${n} (ว่าง)`);
             else if (r.kind === 'pool') out.notes[t].push(`โควตาสแปร์ (${r.position}) ลำดับ ${n} (ว่าง)`);
+            else if (r.kind === 'required_open') out.notes[t].push(`ลำดับ ${n} ${r.position}: ${r.swapNote}`);
             else if (r.kind === 'moved_out') out.notes[t].push(`ลำดับ ${n} ${r.position} ว่าง (${r.swapNote})`);
             else if (r.kind === 'swapped_in') out.notes[t].push(`ลำดับ ${n} ${r.position}: ${r.swapNote}`);
           });
@@ -2045,6 +2095,15 @@ createApp({
             position: r.position,
             shift: s,
             label: `No.${r.no} ${r.name} (${r.position})`
+          });
+        }
+
+        // ตำแหน่งบังคับที่ตัวประจำหยุด (เช่น Senior Sup ทุกวัน, Site Manager วันเสาร์): ต้องมีคนขึ้นแทน ขึ้นบนสุดของรายการ
+        if (shiftType === 'D' && d && requiredShiftOf(r, s, d) === 'D' && !resolved.movedInByTarget.has(r.no)) {
+          neededTargets.unshift({
+            no: r.no,
+            position: r.position,
+            label: `No.${r.no} ${r.position} [ตัวประจำหยุด - ต้องมีตำแหน่ง] - ${r.name}`
           });
         }
 
