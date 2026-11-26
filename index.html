@@ -2039,7 +2039,7 @@
               <optgroup v-if="swapOptions.neededTargets.length" :label="'จุดที่ต้องการคน / ลา / ว่าง (' + swapOptions.neededTargets.length + ')'">
                 <option v-for="t in swapOptions.neededTargets" :key="'nt-' + t.no" :value="t.no">{{ t.label }}</option>
               </optgroup>
-              <optgroup label="ตำแหน่งอื่นในกะนี้">
+              <optgroup v-if="swapOptions.otherTargets.length" label="ตำแหน่งอื่นในกะนี้">
                 <option v-for="t in swapOptions.otherTargets" :key="'ot-' + t.no" :value="t.no">{{ t.label }}</option>
               </optgroup>
             </select>
