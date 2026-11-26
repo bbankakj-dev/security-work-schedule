@@ -1476,19 +1476,46 @@ createApp({
       return `No.${row.no} ${row.name} (${row.position})`;
     }
 
-    // สรุปยอดขอสแปร์ของวันหนึ่งๆ (rows = ตารางเวรของรอบที่วันนั้นสังกัด, dayIdx = ลำดับวันในรอบ)
+      function resolveDayShiftSwaps(dateString, shiftType) {
+        const list = positionSwaps.value.filter(s => s.date === dateString && s.shift === shiftType);
+        const movedOut = new Set();
+        const movedInByTarget = new Map();
+        const swapByFrom = new Map();
+        list.forEach(s => {
+          movedOut.add(Number(s.fromGuardNo));
+          movedInByTarget.set(Number(s.toPositionNo), s);
+          swapByFrom.set(Number(s.fromGuardNo), s);
+        });
+        return { movedOut, movedInByTarget, swapByFrom };
+      }
+
+      // สรุปยอดขอสแปร์ของวันหนึ่งๆ (rows = ตารางเวรของรอบที่วันนั้นสังกัด, dayIdx = ลำดับวันในรอบ)
     //   จุดที่ต้องขอสแปร์ = ตำแหน่งว่าง + แถว 40 (โควตาสแปร์) ที่มีกะทำงาน + คนประจำที่แจ้งลา
-    //   จุดที่มีสแปร์เข้าแทนแล้ว = ดูจาก "จุดที่เข้าแทน" ที่บันทึกไว้ / สแปร์เดิมที่ไม่ได้ระบุจุด นับลดยอดค้างทีละจุด
+    //   (หักลบ/ปรับตามการสลับจุดในกะเดียวกัน: จุดที่มีคนประจำย้ายมาทำแทนแล้วไม่ต้องขอสแปร์, จุดเดิมที่ย้ายออกจะว่างรอสแปร์แทน)
     function spareStatsFor(rows, dayIdx, date, dateString) {
       const spots = { D: [], N: [] };
+      const resolved = { D: resolveDayShiftSwaps(dateString, 'D'), N: resolveDayShiftSwaps(dateString, 'N') };
       rows.forEach(r => {
         const s = r.shifts[dayIdx];
         if (r.isSpare) {
           const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
-          if (t) spots[t].push({ no: r.no, kind: r.isReliefPool ? 'pool' : 'vacant', text: spotText(r) });
+          if (t && !resolved[t].movedInByTarget.has(r.no)) {
+            spots[t].push({ no: r.no, kind: r.isReliefPool ? 'pool' : 'vacant', text: spotText(r) });
+          }
           return;
         }
-        if (s === 'L') spots[leaveShiftOf(r, date, dateString)].push({ no: r.no, kind: 'leave', text: spotText(r) });
+        if (s === 'L') {
+          const t = leaveShiftOf(r, date, dateString);
+          if (!resolved[t].movedInByTarget.has(r.no)) {
+            spots[t].push({ no: r.no, kind: 'leave', text: spotText(r) });
+          }
+          return;
+        }
+        const t = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : null;
+        if (t && resolved[t].movedOut.has(r.no) && !resolved[t].movedInByTarget.has(r.no)) {
+          const sw = resolved[t].swapByFrom.get(r.no);
+          spots[t].push({ no: r.no, kind: 'vacant', text: `${spotText(r)} (ย้ายไปแทน ${sw ? sw.toPositionName : 'จุดอื่น'})` });
+        }
       });
       const out = {};
       ['D', 'N'].forEach(t => {
@@ -1873,6 +1900,7 @@ createApp({
         };
         if (!ctx) return out;
         const idx = utcDayNum(date.getFullYear(), date.getMonth(), date.getDate()) - ctx.startDayNum;
+        const resolved = { D: resolveDayShiftSwaps(day.dateString, 'D'), N: resolveDayShiftSwaps(day.dateString, 'N') };
         ctx.rows.forEach(r => {
           const s = r.shifts[idx];
           let t = null;
@@ -1880,14 +1908,32 @@ createApp({
           else if (s === 'D' || s === 'PH') t = 'D';
           else if (s === 'L') t = leaveShiftOf(r, date, day.dateString); // คนลา: จุดยังอยู่ แต่เว้นชื่อรอสแปร์
           if (t !== 'D' && t !== 'N') return;
-          const blank = r.isSpare || s === 'L'; // ตำแหน่งว่าง / โควตาสแปร์ / คนลา = ไม่มี รปภ.ประจำมาทำงาน
+
+          const swIn = resolved[t].movedInByTarget.get(r.no);
+          const isMovedOut = resolved[t].movedOut.has(r.no);
+          if (swIn) {
+            out[t].push({
+              no: r.no,
+              code: swIn.fromGuardCode || '',
+              name: `${swIn.fromGuardName} (ย้ายจุด)`,
+              position: r.isReliefPool ? 'Spare Relief Pool' : r.position,
+              kind: 'swapped_in',
+              leaveName: s === 'L' ? (r.name || '') : '',
+              swapNote: `ย้ายมาจาก ${swIn.fromPositionName} (${swIn.fromGuardName})`
+            });
+            return;
+          }
+
+          const blank = r.isSpare || s === 'L' || isMovedOut; // ตำแหน่งว่าง / โควตาสแปร์ / คนลา / ย้ายออกไปจุดอื่น = เว้นว่างรอสแปร์
+          const swOut = isMovedOut ? resolved[t].swapByFrom.get(r.no) : null;
           out[t].push({
             no: r.no,
             code: blank ? '' : (r.code || ''),
             name: blank ? '' : (r.name || ''),
             position: r.isReliefPool ? 'Spare Relief Pool' : r.position,
-            kind: s === 'L' ? 'leave' : (r.isReliefPool ? 'pool' : (r.isSpare ? 'vacant' : 'regular')),
-            leaveName: s === 'L' ? (r.name || '') : ''
+            kind: s === 'L' ? 'leave' : (isMovedOut ? 'moved_out' : (r.isReliefPool ? 'pool' : (r.isSpare ? 'vacant' : 'regular'))),
+            leaveName: s === 'L' ? (r.name || '') : '',
+            swapNote: swOut ? `${r.name} ย้ายไปแทน ${swOut.toPositionName}` : ''
           });
         });
         ['D', 'N'].forEach(t => {
@@ -1898,6 +1944,8 @@ createApp({
             if (r.kind === 'leave') out.notes[t].push(`รปภ.ประจำ ${r.leaveName} ตำแหน่ง ${r.position} ลำดับ ${n} (ลา)`);
             else if (r.kind === 'vacant') out.notes[t].push(`ตำแหน่ง ${r.position} ลำดับ ${n} (ว่าง)`);
             else if (r.kind === 'pool') out.notes[t].push(`โควตาสแปร์ (${r.position}) ลำดับ ${n} (ว่าง)`);
+            else if (r.kind === 'moved_out') out.notes[t].push(`ลำดับ ${n} ${r.position} ว่าง (${r.swapNote})`);
+            else if (r.kind === 'swapped_in') out.notes[t].push(`ลำดับ ${n} ${r.position}: ${r.swapNote}`);
           });
         });
         // ปรับความสูงแถวอัตโนมัติให้พอดี 1 หน้า A4 (พื้นที่ใช้ได้ ~279mm): แถวเยอะ / รายการลายาว -> แถวเตี้ยลง + ตัวอักษรเล็กลง
@@ -1918,6 +1966,471 @@ createApp({
       const cleanup = () => { document.body.classList.remove(cls); window.removeEventListener('afterprint', cleanup); };
       window.addEventListener('afterprint', cleanup);
       try { window.print(); } finally { setTimeout(cleanup, 1500); }
+    }
+
+    // =========================================================================
+    // ระบบสลับจุด (Position Swap ภายในกะเดียวกัน — Sup / Admin)
+    // =========================================================================
+    const positionSwaps = ref([]);
+    const showSwapModal = ref(false);
+    const swapForm = ref({
+      date: fmtDate(new Date()),
+      shift: 'D',
+      fromGuardNo: '',
+      toPositionNo: '',
+      note: ''
+    });
+
+    function initPositionSwaps() {
+      if (CLOUD_ENABLED) {
+        positionSwaps.value = [];
+        return;
+      }
+      const saved = safeParse('sws_position_swaps', []);
+      positionSwaps.value = Array.isArray(saved) ? saved : [];
+    }
+
+    function savePositionSwaps() {
+      localStorage.setItem('sws_position_swaps', JSON.stringify(positionSwaps.value));
+    }
+
+    function persistSwapAdd(rec) {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('positionSwaps').doc(String(rec.id)).set(plain(rec)));
+      } else {
+        savePositionSwaps();
+      }
+    }
+
+    function persistSwapRemove(rec) {
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('positionSwaps').doc(String(rec.id)).delete());
+      } else {
+        savePositionSwaps();
+      }
+    }
+
+    function sortPositionSwaps() {
+      positionSwaps.value.sort((a, b) =>
+        String(b.date).localeCompare(String(a.date)) || String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+    }
+
+    // ตัวเลือกสำหรับฟอร์มสลับจุด:
+    //   - workingGuards: คนประจำที่มาทำงานในวัน/กะนั้นอยู่แล้ว (ไม่หยุด H, ไม่ลา L, ไม่ใช่จุดว่าง)
+    //   - targetPositions: ตำแหน่งในวัน/กะนั้นที่ตัวประจำลา (L) หรือว่าง (isSpare) ขึ้นก่อน ตามด้วยจุดอื่น
+    const swapOptions = computed(() => {
+      const f = swapForm.value;
+      const d = f.date ? parseDate(f.date) : null;
+      const ctx = d && !isNaN(d.getTime()) ? getCycleContext(cycleIdForDate(d)) : null;
+      const rows = ctx ? ctx.rows : scheduleData.value;
+      const idx = ctx ? (utcDayNum(d.getFullYear(), d.getMonth(), d.getDate()) - ctx.startDayNum) : -1;
+      const shiftType = f.shift === 'N' ? 'N' : 'D';
+      const resolved = f.date ? resolveDayShiftSwaps(f.date, shiftType) : { movedOut: new Set(), movedInByTarget: new Map() };
+
+      const workingGuards = [];
+      const neededTargets = [];
+      const otherTargets = [];
+
+      rows.forEach(r => {
+        if (idx < 0 || !r.shifts || idx >= r.shifts.length) return;
+        const s = r.shifts[idx];
+        const rowShift = s === 'N' ? 'N' : (s === 'D' || s === 'PH') ? 'D' : (s === 'L' ? leaveShiftOf(r, d, f.date) : null);
+
+        // คนที่จะย้ายไปทำแทนจุดอื่นได้: ต้องเป็นคนประจำที่มาเข้าเวรในกะนั้นจริงๆ และยังไม่ถูกย้ายในวัน/กะนั้น
+        if (!r.isSpare && (s === 'D' || s === 'PH' || s === 'N') && rowShift === shiftType && !resolved.movedOut.has(r.no)) {
+          workingGuards.push({
+            no: r.no,
+            code: r.code || '',
+            name: r.name,
+            position: r.position,
+            shift: s,
+            label: `No.${r.no} ${r.name} (${r.position})`
+          });
+        }
+
+        // จุดเป้าหมาย: จุดที่ลา / ว่าง / หรือจุดที่คนเดิมย้ายออกไปแล้ว (ขึ้นก่อน)
+        if (rowShift === shiftType) {
+          const isTargetVacantOrLeave = r.isSpare || s === 'L' || resolved.movedOut.has(r.no);
+          const alreadyCovered = resolved.movedInByTarget.has(r.no);
+          if (isTargetVacantOrLeave && !alreadyCovered) {
+            const statusTag = s === 'L' ? 'ลา' : (r.isReliefPool ? 'โควตาสแปร์' : (r.isSpare ? 'ว่าง' : 'ย้ายออก'));
+            neededTargets.push({
+              no: r.no,
+              position: r.position,
+              label: `No.${r.no} ${r.position} [${statusTag}]${!r.isSpare ? ' - ' + r.name : ''}`
+            });
+          } else if (!alreadyCovered) {
+            otherTargets.push({
+              no: r.no,
+              position: r.position,
+              label: `No.${r.no} ${r.position} - ${r.name}`
+            });
+          }
+        }
+      });
+
+      return { workingGuards, neededTargets, otherTargets };
+    });
+
+    function openSwapModal(dateStr = null, shift = 'D', toPosNo = '') {
+      swapForm.value = {
+        date: dateStr || fmtDate(new Date()),
+        shift: shift || 'D',
+        fromGuardNo: '',
+        toPositionNo: toPosNo || '',
+        note: ''
+      };
+      showSwapModal.value = true;
+    }
+
+    function submitSwap() {
+      if (!isSupervisor.value) return;
+      const f = swapForm.value;
+      if (!f.date) { alert('⚠️ กรุณาระบุวันที่'); return; }
+      if (f.shift !== 'D' && f.shift !== 'N') { alert('⚠️ กรุณาเลือกกะ (เช้า/ดึก)'); return; }
+      const fromNo = Number(f.fromGuardNo);
+      const toNo = Number(f.toPositionNo);
+      if (!fromNo) { alert('⚠️ กรุณาเลือก รปภ. ที่จะย้ายจุด'); return; }
+      if (!toNo) { alert('⚠️ กรุณาเลือกจุด/ตำแหน่งที่ไปทำแทน'); return; }
+      if (fromNo === toNo) { alert('⚠️ ไม่สามารถย้ายไปจุดเดิมของตนเองได้'); return; }
+
+      const d = parseDate(f.date);
+      const ctx = getCycleContext(cycleIdForDate(d));
+      const rows = ctx ? ctx.rows : scheduleData.value;
+      const fromRow = rows.find(r => r.no === fromNo);
+      const toRow = rows.find(r => r.no === toNo);
+      if (!fromRow || !toRow) { alert('⚠️ ไม่พบข้อมูลพนักงานหรือตำแหน่งที่เลือก'); return; }
+
+      const alreadyFrom = positionSwaps.value.find(s => s.date === f.date && s.shift === f.shift && Number(s.fromGuardNo) === fromNo);
+      if (alreadyFrom) {
+        alert(`⚠️ ${fromRow.name} มีรายการสลับจุดในวันและกะนี้แล้ว (ไปแทน ${alreadyFrom.toPositionName})`);
+        return;
+      }
+      const alreadyTo = positionSwaps.value.find(s => s.date === f.date && s.shift === f.shift && Number(s.toPositionNo) === toNo);
+      if (alreadyTo) {
+        alert(`⚠️ จุด No.${toNo} ${toRow.position} มี ${alreadyTo.fromGuardName} ย้ายมาทำแทนอยู่แล้ว`);
+        return;
+      }
+
+      const rec = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        date: f.date,
+        shift: f.shift,
+        fromGuardNo: fromNo,
+        fromGuardCode: fromRow.code || '',
+        fromGuardName: fromRow.name,
+        fromPositionName: fromRow.position,
+        toPositionNo: toNo,
+        toPositionName: toRow.isReliefPool ? 'Spare Relief Pool' : toRow.position,
+        toPersonName: toRow.isSpare ? 'ตำแหน่งว่าง' : toRow.name,
+        note: (f.note || '').trim(),
+        loggedBy: currentUser.value ? currentUser.value.name : 'Supervisor',
+        timestamp: new Date().toISOString()
+      };
+
+      positionSwaps.value.unshift(rec);
+      sortPositionSwaps();
+      persistSwapAdd(rec);
+      showSwapModal.value = false;
+      alert(`✅ บันทึกสลับจุดเรียบร้อยแล้ว\n${rec.fromGuardName} (${rec.fromPositionName})\n➔ ไปทำแทน: No.${rec.toPositionNo} ${rec.toPositionName}\nวันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'}`);
+    }
+
+    function cancelSwap(rec) {
+      if (!isSupervisor.value) return;
+      if (!confirm(`ยกเลิกการสลับจุดของ ${rec.fromGuardName} วันที่ ${rec.date} กะ${rec.shift === 'N' ? 'ดึก' : 'เช้า'} หรือไม่?`)) return;
+      positionSwaps.value = positionSwaps.value.filter(s => s.id !== rec.id);
+      persistSwapRemove(rec);
+    }
+
+    // ค้นหาข้อมูลสลับจุดของพนักงานในวันหนึ่ง (ใช้แสดงในตารางเวรรวมและคำนวณค่าแรง)
+    function getGuardSwapOnDate(guardNo, dateString) {
+      return positionSwaps.value.find(s => s.date === dateString && Number(s.fromGuardNo) === Number(guardNo)) || null;
+    }
+
+    // =========================================================================
+    // ระบบอัตราค่าแรง & สรุปค่าแรงตามสลิปเงินเดือน (เฉพาะ Admin เท่านั้น!)
+    // =========================================================================
+    const defaultWageConfig = {
+      baseWage: 400,           // ค่าแรงขั้นต่ำ 8 ชม./วัน
+      otNormal: 250,           // ค่าล่วงเวลา 1.25 เท่า (4 ชม. x 62.50 บาท)
+      holidayWage: 400,        // วันหยุดนักขัตฤกษ์ (เรทอัตราค่าแรงขั้นต่ำ 400 บาท)
+      otHoliday: 500,          // ค่าล่วงเวลา 2.5 เท่า วันนักขัตฤกษ์ (4 ชม. x 125 บาท)
+      diligencePerDay: 40,     // เบี้ยขยัน วันละ 40 บาท
+      diligenceMinDays: 20,    // ไม่มีการลา และทำงาน >= 20 วัน/รอบ
+      positionRates: {
+        siteManager: 895,      // SM (Site M.)
+        fireman: 795,          // Fireman 1-4
+        seniorSup: 520,        // Senior Sup.
+        supervisor: 435,       // Sup.
+        asstSup: 305,          // Asst. Sup
+        cctv: 300,             // CCTV
+        emergencyDriver: 265,  // Emergency Driver
+        admin: 245,            // Admin
+        guard: 245,            // Guard
+        reception: 760         // Reception
+      }
+    };
+
+    const wageConfig = ref(JSON.parse(JSON.stringify(defaultWageConfig)));
+    const showWageSettings = ref(false);
+    const selectedWageGuardDetail = ref(null);
+    let unsubWage = null;
+
+    function initWageConfig() {
+      if (CLOUD_ENABLED) {
+        wageConfig.value = JSON.parse(JSON.stringify(defaultWageConfig));
+        return;
+      }
+      const saved = safeParse('sws_wage_config', null);
+      if (saved && saved.positionRates) {
+        wageConfig.value = {
+          ...defaultWageConfig,
+          ...saved,
+          positionRates: { ...defaultWageConfig.positionRates, ...saved.positionRates }
+        };
+      } else {
+        wageConfig.value = JSON.parse(JSON.stringify(defaultWageConfig));
+      }
+    }
+
+    function saveWageConfig() {
+      if (!isAdmin.value) return;
+      if (CLOUD_ENABLED) {
+        cloudWrite(fbDb.collection('wageSettings').doc('main').set(plain(wageConfig.value)));
+        alert('✅ บันทึกตั้งค่าอัตราค่าแรงขึ้นระบบกลางแล้ว');
+        return;
+      }
+      localStorage.setItem('sws_wage_config', JSON.stringify(wageConfig.value));
+      alert('✅ บันทึกตั้งค่าอัตราค่าแรงเรียบร้อยแล้ว');
+    }
+
+    function resetWageConfigDefault() {
+      if (!isAdmin.value) return;
+      if (!confirm('รีเซ็ตอัตราค่าแรงกลับเป็นค่าเริ่มต้นตามสลิปบริษัทหรือไม่?')) return;
+      wageConfig.value = JSON.parse(JSON.stringify(defaultWageConfig));
+      saveWageConfig();
+    }
+
+    function refreshWageSubscription() {
+      if (!CLOUD_ENABLED) return;
+      if (unsubWage) { unsubWage(); unsubWage = null; }
+      if (isAdmin.value) {
+        unsubWage = fbDb.collection('wageSettings').doc('main').onSnapshot(snap => {
+          if (snap.metadata.hasPendingWrites) return;
+          if (snap.exists && snap.data()) {
+            const d = snap.data();
+            wageConfig.value = {
+              ...defaultWageConfig,
+              ...d,
+              positionRates: { ...defaultWageConfig.positionRates, ...(d.positionRates || {}) }
+            };
+          }
+        }, err => console.warn('อ่านอัตราค่าแรงไม่ได้', err));
+      } else {
+        wageConfig.value = JSON.parse(JSON.stringify(defaultWageConfig));
+      }
+    }
+
+    function getPositionAllowanceKey(posName) {
+      const p = String(posName || '').toLowerCase();
+      if (p.includes('site manager') || p === 'sm' || p.includes('sm.')) return 'siteManager';
+      if (p.includes('fire man') || p.includes('fireman')) return 'fireman';
+      if (p.includes('senior')) return 'seniorSup';
+      if (p.includes('ass.') || p.includes('asst')) return 'asstSup';
+      if (p.includes('supervisor') || p.includes('sup')) return 'supervisor';
+      if (p.includes('cctv')) return 'cctv';
+      if (p.includes('emergency')) return 'emergencyDriver';
+      if (p.includes('reception')) return 'reception';
+      if (p.includes('admin')) return 'admin';
+      return 'guard';
+    }
+
+    function getPositionAllowanceLabel(key) {
+      const labels = {
+        siteManager: 'Site Manager (SM)',
+        fireman: 'Fireman',
+        seniorSup: 'Senior Sup.',
+        supervisor: 'Supervisor',
+        asstSup: 'Asst. Sup',
+        cctv: 'CCTV',
+        emergencyDriver: 'Emergency Driver',
+        admin: 'Admin',
+        guard: 'Guard',
+        reception: 'Reception'
+      };
+      return labels[key] || 'Guard';
+    }
+
+    function getPositionAllowance(posName, cfg = wageConfig.value) {
+      const key = getPositionAllowanceKey(posName);
+      return Number((cfg.positionRates && cfg.positionRates[key]) || 0);
+    }
+
+    // สรุปค่าแรงรายบุคคลในรอบที่กำลังเลือกอยู่ (เฉพาะ Admin)
+    const wageSummaries = computed(() => {
+      if (!isAdmin.value) return [];
+      const cfg = wageConfig.value;
+      const days = currentCycleDays.value;
+      const cycleId = currentCycle.value.id;
+
+      return scheduleData.value
+        .filter(g => !g.isReliefPool)
+        .map(guard => {
+          let normalDays = 0;
+          let phDays = 0;
+          let offDays = 0;
+          let leaveDays = 0;
+          let swappedDays = 0;
+          let totalBase = 0;
+          let totalOt125 = 0;
+          let totalHolidayBase = 0;
+          let totalOt250 = 0;
+          let totalPositionPay = 0;
+
+          const posMap = {}; // key -> { label, days, rate, amount }
+          const dailyDetails = [];
+
+          days.forEach((day, dIdx) => {
+            const s = guard.shifts[dIdx];
+            if (s === 'H') { offDays++; return; }
+            if (s === 'L') { leaveDays++; return; }
+            if (s !== 'D' && s !== 'N' && s !== 'PH') return;
+
+            const shiftForSwap = s === 'N' ? 'N' : 'D';
+            const sw = !guard.isSpare
+              ? positionSwaps.value.find(x => x.date === day.dateString && x.shift === shiftForSwap && Number(x.fromGuardNo) === guard.no)
+              : null;
+
+            const effectivePos = sw ? sw.toPositionName : guard.position;
+            const posKey = getPositionAllowanceKey(effectivePos);
+            const posLabel = getPositionAllowanceLabel(posKey);
+            const posRate = Number((cfg.positionRates && cfg.positionRates[posKey]) || 0);
+
+            if (sw) swappedDays++;
+
+            let dayBase = 0;
+            let dayOt125 = 0;
+            let dayHolBase = 0;
+            let dayOt250 = 0;
+
+            if (s === 'PH') {
+              phDays++;
+              dayHolBase = Number(cfg.holidayWage || 0);
+              dayOt250 = Number(cfg.otHoliday || 0);
+              totalHolidayBase += dayHolBase;
+              totalOt250 += dayOt250;
+            } else {
+              normalDays++;
+              dayBase = Number(cfg.baseWage || 0);
+              dayOt125 = Number(cfg.otNormal || 0);
+              totalBase += dayBase;
+              totalOt125 += dayOt125;
+            }
+
+            totalPositionPay += posRate;
+
+            if (!posMap[posKey]) posMap[posKey] = { label: posLabel, days: 0, rate: posRate, amount: 0 };
+            posMap[posKey].days += 1;
+            posMap[posKey].amount += posRate;
+
+            dailyDetails.push({
+              dateString: day.dateString,
+              dayName: day.dayName,
+              shift: s,
+              isSwapped: !!sw,
+              fromPos: guard.position,
+              effectivePos: posLabel,
+              dayBase,
+              dayOt125,
+              dayHolBase,
+              dayOt250,
+              posRate,
+              dayTotal: dayBase + dayOt125 + dayHolBase + dayOt250 + posRate
+            });
+          });
+
+          // ตรวจวันลาจาก leaveRecords ในรอบนี้ด้วย เพื่อความแม่นยำ
+          const leaveRecCount = leaveRecords.value.filter(r => r.cycleId === cycleId && r.guardNo === guard.no).length;
+          const totalLeave = Math.max(leaveDays, leaveRecCount);
+          const workDays = normalDays + phDays;
+          const eligibleDiligence = !guard.isSpare && totalLeave === 0 && workDays >= Number(cfg.diligenceMinDays || 20);
+          const diligencePay = eligibleDiligence ? workDays * Number(cfg.diligencePerDay || 0) : 0;
+          const totalPay = totalBase + totalOt125 + totalHolidayBase + totalOt250 + totalPositionPay + diligencePay;
+
+          return {
+            no: guard.no,
+            code: guard.code,
+            name: guard.name,
+            position: guard.position,
+            isSpare: guard.isSpare,
+            normalDays,
+            phDays,
+            workDays,
+            offDays,
+            leaveDays: totalLeave,
+            swappedDays,
+            totalBase,
+            totalOt125,
+            totalHolidayBase,
+            totalOt250,
+            totalPositionPay,
+            eligibleDiligence,
+            diligencePay,
+            totalPay,
+            positionBreakdown: Object.values(posMap),
+            dailyDetails
+          };
+        });
+    });
+
+    const wageGrandTotals = computed(() => {
+      return wageSummaries.value.reduce((acc, r) => {
+        if (r.isSpare) return acc;
+        acc.workDays += r.workDays;
+        acc.base += r.totalBase;
+        acc.ot125 += r.totalOt125;
+        acc.holBase += r.totalHolidayBase;
+        acc.ot250 += r.totalOt250;
+        acc.positionPay += r.totalPositionPay;
+        acc.diligence += r.diligencePay;
+        acc.total += r.totalPay;
+        return acc;
+      }, { workDays: 0, base: 0, ot125: 0, holBase: 0, ot250: 0, positionPay: 0, diligence: 0, total: 0 });
+    });
+
+    function fmtMoney(n) {
+      return Number(n || 0).toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+    }
+
+    function exportWageCsv() {
+      if (!isAdmin.value) return;
+      const lines = [];
+      lines.push([`สรุปอัตราค่าแรงและเงินเดือน ${currentCycle.value.name}`]);
+      lines.push(['No.', 'รหัส', 'ชื่อ-สกุล', 'ตำแหน่งหลัก', 'วันปกติ', 'วันนักขัตฤกษ์', 'รวมวันทำงาน', 'วันลา', 'สลับจุด(วัน)', 'ค่าแรงปกติ(400)', 'OT 1.25x(250)', 'ค่าแรง PH(400)', 'OT 2.5x(500)', 'ค่าตำแหน่งรวม', 'รายละเอียดค่าตำแหน่ง', 'เบี้ยขยัน(40/วัน)', 'รวมค่าแรงสุทธิ(บาท)']);
+      wageSummaries.value.forEach(r => {
+        const bd = r.positionBreakdown.map(p => `${p.label} ${p.days}วันx${p.rate}=${p.amount}`).join(' | ');
+        lines.push([
+          r.no, r.code || '-', r.name, r.position, r.normalDays, r.phDays, r.workDays, r.leaveDays, r.swappedDays,
+          r.totalBase, r.totalOt125, r.totalHolidayBase, r.totalOt250, r.totalPositionPay, bd, r.diligencePay, r.totalPay
+        ]);
+      });
+      const g = wageGrandTotals.value;
+      lines.push(['', '', 'รวมทั้งหมด (เฉพาะคนประจำ)', '', '', '', g.workDays, '', '', g.base, g.ot125, g.holBase, g.ot250, g.positionPay, '', g.diligence, g.total]);
+
+      const blob = new Blob(['\ufeff' + lines.map(l => l.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wage_summary_${currentCycle.value.id}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function printWageSummary() {
+      if (!isAdmin.value) return;
+      window.print();
     }
 
     // =========================================================================
@@ -2058,6 +2571,14 @@ createApp({
       }
       if (tab === 'schedule_print' && !isAdmin.value) {
         alert('🔒 หัวข้อ "สรุปตารางเวรและสแปร์" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น');
+        return;
+      }
+      if (tab === 'wage_summary' && !isAdmin.value) {
+        alert('🔒 หัวข้อ "อัตราค่าแรง" สงวนสิทธิ์เฉพาะ Admin (Site Manager) เท่านั้น');
+        return;
+      }
+      if (tab === 'position_swap' && !isSupervisor.value) {
+        alert('🔒 หัวข้อ "สลับจุด" สำหรับ Supervisor / Admin เท่านั้น กรุณาเข้าสู่ระบบก่อน');
         return;
       }
       if (tab === 'sign_sheet' && !isSupervisor.value) {
@@ -2225,6 +2746,15 @@ createApp({
         const list = snap.exists ? snap.data().list : null;
         if (Array.isArray(list)) regularSpares.value = list;
       }, onErr('regular_spares'));
+
+      fbDb.collection('positionSwaps').onSnapshot(snap => {
+        if (snap.metadata.hasPendingWrites) return;
+        positionSwaps.value = snap.docs.map(d => d.data());
+        sortPositionSwaps();
+        cloudStatus.value = 'online';
+      }, onErr('positionSwaps'));
+
+      refreshWageSubscription();
     }
 
     // Admin: ย้ายข้อมูลที่เคยแก้ไว้ใน localStorage ของเครื่องนี้ ขึ้นระบบกลาง (ทำครั้งเดียว)
@@ -2288,10 +2818,16 @@ createApp({
       initLeaveRecords();
       initSpareArrivals();
       initRegularSpares();
+      initPositionSwaps();
+      initWageConfig();
       initSchedule();
       if (CLOUD_ENABLED) startCloudListeners();
       // อัปเดตเวลาทุกนาที เพื่อให้สถานะ "รอสแปร์ -> ขาด" เปลี่ยนเองเมื่อหมดกะ
       if (typeof setInterval === 'function') setInterval(() => { nowTick.value = Date.now(); }, 60000);
+    });
+
+    watch(isAdmin, () => {
+      if (CLOUD_ENABLED) refreshWageSubscription();
     });
 
     watch(selectedCycleIndex, () => {
@@ -2447,6 +2983,27 @@ createApp({
       addRegularSpare,
       removeRegularSpare,
       pickRegularSpare,
+      // สลับจุดภายในกะ (Sup / Admin)
+      positionSwaps,
+      showSwapModal,
+      swapForm,
+      swapOptions,
+      openSwapModal,
+      submitSwap,
+      cancelSwap,
+      getGuardSwapOnDate,
+      // อัตราค่าแรง & สรุปค่าแรง (เฉพาะ Admin)
+      wageConfig,
+      showWageSettings,
+      selectedWageGuardDetail,
+      saveWageConfig,
+      resetWageConfigDefault,
+      getPositionAllowanceLabel,
+      wageSummaries,
+      wageGrandTotals,
+      fmtMoney,
+      exportWageCsv,
+      printWageSummary,
       // แก้ไขรายการสแปร์ย้อนหลัง (Admin)
       editingSpareId,
       spareEditForm,

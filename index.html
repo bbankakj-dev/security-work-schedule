@@ -40,6 +40,9 @@
       body * { visibility: hidden; }
       #printableBillingArea, #printableBillingArea * { visibility: visible; }
       #printableBillingArea { position: absolute; left: 0; top: 0; width: 100%; }
+      #printableWageArea, #printableWageArea * { visibility: visible; }
+      #printableWageArea { position: absolute; left: 0; top: 0; width: 100%; page: schedulepage;
+                           -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       #printableScheduleArea, #printableScheduleArea * { visibility: visible; }
       #printableScheduleArea { position: absolute; left: 0; top: 0; width: 100%; page: schedulepage;
                                -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -191,6 +194,14 @@
               {{ spareArrivals.length }}
             </span>
           </button>
+          <button v-if="isSupervisor" @click="selectTab('position_swap')" 
+                  :class="currentTab === 'position_swap' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
+                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
+            🔄 สลับจุด
+            <span v-if="positionSwaps.length > 0" class="bg-sky-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
+              {{ positionSwaps.length }}
+            </span>
+          </button>
           <button @click="selectTab('personal')" 
                   :class="currentTab === 'personal' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
@@ -218,6 +229,11 @@
                   class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
             🖨️ สรุปชั่วโมงการปฏิบัติงาน
             <span v-if="!isAdmin" class="text-[9px] bg-slate-200 text-slate-600 px-1 py-0.2 rounded">เฉพาะ Admin</span>
+          </button>
+          <button v-if="isAdmin" @click="selectTab('wage_summary')" 
+                  :class="currentTab === 'wage_summary' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
+                  class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition whitespace-nowrap shrink-0">
+            💰 อัตราค่าแรง
           </button>
           <button v-if="isAdmin" @click="selectTab('admin_settings')" 
                   :class="currentTab === 'admin_settings' ? 'bg-amber-500 text-slate-950 font-bold shadow-sm' : 'text-slate-600 hover:bg-slate-100'"
@@ -274,12 +290,15 @@
           </div>
 
           <!-- Admin & Sup Actions -->
-          <div v-if="isAdmin || isSupervisor" class="flex items-center gap-2">
+          <div v-if="isAdmin || isSupervisor" class="flex flex-wrap items-center gap-2">
             <button @click="openLeaveModal()" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1 transition">
               📝 แจ้งคนลา (ขอสแปร์)
             </button>
             <button @click="openSpareModal()" class="bg-purple-600 hover:bg-purple-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1 transition">
               🧑‍🔧 บันทึกสแปร์ที่มา
+            </button>
+            <button @click="openSwapModal()" class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3 py-1.5 rounded-lg text-xs shadow-sm flex items-center gap-1 transition">
+              🔄 สลับจุด
             </button>
             <button v-if="isAdmin" @click="resetScheduleToMaster" class="bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1.5 rounded-lg text-xs transition">
               🔄 รีเซ็ต Master
@@ -373,15 +392,17 @@
                   <!-- Day Shift Cells -->
                   <td v-for="(shift, sIdx) in guard.shifts" :key="sIdx" 
                       @click.stop="isAdmin || isSupervisor ? editShift(guard, sIdx) : toggleSelectDate(currentCycleDays[sIdx].dateString)"
-                      class="py-0.5 px-0.5 text-center font-bold border-l border-slate-100 transition text-[11px]"
+                      class="py-0.5 px-0.5 text-center font-bold border-l border-slate-100 transition text-[11px] relative"
                       :class="[
                         getShiftStyle(shift, selectedDateStr === currentCycleDays[sIdx].dateString),
                         selectedDateStr === currentCycleDays[sIdx].dateString ? 'ring-2 ring-amber-400 z-10' : '',
                         selectedGuardId === guard.id && selectedDateStr === currentCycleDays[sIdx].dateString ? '!bg-amber-400 !text-slate-950 !ring-2 !ring-amber-600 scale-105 z-20' : '',
+                        getGuardSwapOnDate(guard.no, currentCycleDays[sIdx].dateString) ? 'ring-1 ring-inset ring-sky-500' : '',
                         (isAdmin || isSupervisor) ? 'cursor-pointer hover:ring-2 hover:ring-amber-400' : 'cursor-pointer'
                       ]"
-                      :title="(isAdmin || isSupervisor) ? 'คลิกเพื่อสลับกะ (D -> N -> H -> PH -> L)' : 'คลิกเพื่อเน้นทั้งคอลัมน์ของวันนี้'">
+                      :title="(getGuardSwapOnDate(guard.no, currentCycleDays[sIdx].dateString) ? '🔄 สลับจุดไปแทน: ' + getGuardSwapOnDate(guard.no, currentCycleDays[sIdx].dateString).toPositionName + ' · ' : '') + ((isAdmin || isSupervisor) ? 'คลิกเพื่อสลับกะ (D -> N -> H -> PH -> L)' : 'คลิกเพื่อเน้นทั้งคอลัมน์ของวันนี้')">
                     {{ shift }}
+                    <span v-if="getGuardSwapOnDate(guard.no, currentCycleDays[sIdx].dateString)" class="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-sky-600"></span>
                   </td>
 
                   <!-- Row Summary Columns -->
@@ -696,7 +717,145 @@
                       <button @click="saveEditSpare" class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold px-2 py-0.5 rounded text-[11px]">บันทึก</button>
                       <button @click="cancelEditSpare" class="bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-2 py-0.5 rounded text-[11px]">ยกเลิก</button>
                     </td>
-                  </template>
+                  <!-- Modal 6: บันทึกสลับจุดภายในกะ (Position Swap) -->
+    <div v-if="showSwapModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+        <h3 class="font-bold text-slate-900 text-base mb-1">🔄 บันทึกสลับจุดภายในกะ</h3>
+        <p class="text-xs text-slate-500 mb-3">เลือก รปภ. ที่มาเข้าเวรอยู่แล้วให้ย้ายไปปฏิบัติหน้าที่ในตำแหน่งที่ตัวประจำลาหรือว่าง (1 คนลงได้ 1 ตำแหน่งต่อวัน)</p>
+
+        <div class="space-y-3 text-xs mb-4 bg-sky-50/60 p-3 rounded-xl border border-sky-200">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] text-slate-600 block">วันที่:</label>
+              <input type="date" v-model="swapForm.date" class="w-full bg-white border rounded p-1.5 font-semibold">
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-600 block">กะ:</label>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" @click="swapForm.shift = 'D'"
+                        :class="swapForm.shift === 'D' ? 'bg-amber-500 text-slate-950 font-bold border-amber-600' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">☀️ เช้า</button>
+                <button type="button" @click="swapForm.shift = 'N'"
+                        :class="swapForm.shift === 'N' ? 'bg-indigo-600 text-white font-bold border-indigo-700' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">🌙 ดึก</button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">1. เลือก รปภ. ที่จะย้ายจุด (เฉพาะคนที่มาเข้าเวรกะนี้): <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.fromGuardNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือก รปภ. ที่มาเข้าเวร —</option>
+              <option v-for="g in swapOptions.workingGuards" :key="'fg-' + g.no" :value="g.no">{{ g.label }}</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">2. ย้ายไปทำแทนตำแหน่ง/จุดไหน: <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.toPositionNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือกจุดเป้าหมาย —</option>
+              <optgroup v-if="swapOptions.neededTargets.length" :label="'จุดที่ลา / ว่างอยู่ (' + swapOptions.neededTargets.length + ')'">
+                <option v-for="t in swapOptions.neededTargets" :key="'nt-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+              <optgroup label="ตำแหน่งอื่นในกะนี้">
+                <option v-for="t in swapOptions.otherTargets" :key="'ot-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">หมายเหตุ (ถ้ามี):</label>
+            <input type="text" v-model="swapForm.note" placeholder="เช่น ขึ้นแทน Sup. ลา" class="w-full bg-white border rounded p-1.5">
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="showSwapModal = false" class="w-1/2 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            ยกเลิก
+          </button>
+          <button @click="submitSwap" class="w-1/2 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition">
+            บันทึกสลับจุด
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 7: รายละเอียดค่าแรงรายวันของพนักงาน (Admin Only) -->
+    <div v-if="selectedWageGuardDetail && isAdmin" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+      <div class="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col">
+        <div class="flex items-start justify-between border-b pb-3 mb-3">
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">💰 รายละเอียดค่าแรง — {{ selectedWageGuardDetail.name }}</h3>
+            <p class="text-xs text-slate-500">No.{{ selectedWageGuardDetail.no }} · {{ selectedWageGuardDetail.position }} · รหัส {{ selectedWageGuardDetail.code || '-' }}</p>
+          </div>
+          <button @click="selectedWageGuardDetail = null" class="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+        </div>
+
+        <!-- สรุปตามสลิป -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
+          <div class="bg-slate-50 p-2 rounded border">
+            <div class="text-[10px] text-slate-500">ค่าแรง + OT ปกติ ({{ selectedWageGuardDetail.normalDays }} วัน)</div>
+            <div class="font-bold font-mono">{{ fmtMoney(selectedWageGuardDetail.totalBase + selectedWageGuardDetail.totalOt125) }} ฿</div>
+          </div>
+          <div class="bg-purple-50 p-2 rounded border border-purple-200">
+            <div class="text-[10px] text-purple-700">นักขัตฤกษ์ + OT 2.5x ({{ selectedWageGuardDetail.phDays }} วัน)</div>
+            <div class="font-bold font-mono text-purple-900">{{ fmtMoney(selectedWageGuardDetail.totalHolidayBase + selectedWageGuardDetail.totalOt250) }} ฿</div>
+          </div>
+          <div class="bg-amber-50 p-2 rounded border border-amber-200">
+            <div class="text-[10px] text-amber-800">ค่าตำแหน่งรวม</div>
+            <div class="font-bold font-mono text-amber-950">{{ fmtMoney(selectedWageGuardDetail.totalPositionPay) }} ฿</div>
+          </div>
+          <div class="bg-emerald-50 p-2 rounded border border-emerald-200">
+            <div class="text-[10px] text-emerald-800">เบี้ยขยัน ({{ selectedWageGuardDetail.eligibleDiligence ? 'ได้' : 'ไม่ได้' }})</div>
+            <div class="font-bold font-mono text-emerald-900">{{ fmtMoney(selectedWageGuardDetail.diligencePay) }} ฿</div>
+          </div>
+        </div>
+
+        <div class="mb-3 text-xs bg-amber-50/70 border border-amber-200 rounded-lg p-2">
+          <b>สรุปค่าตำแหน่งที่ปฏิบัติงานจริง:</b>
+          <span v-for="(p, i) in selectedWageGuardDetail.positionBreakdown" :key="i" class="inline-block ml-2 bg-white border border-amber-300 px-2 py-0.5 rounded">
+            {{ p.label }}: {{ p.days }} วัน × {{ p.rate }} = <b>{{ fmtMoney(p.amount) }} ฿</b>
+          </span>
+        </div>
+
+        <div class="overflow-y-auto flex-1 border rounded-lg">
+          <table class="w-full text-[11px] text-right border-collapse">
+            <thead class="bg-slate-900 text-white sticky top-0">
+              <tr>
+                <th class="p-1.5 text-left">วันที่</th>
+                <th class="p-1.5 text-center">กะ</th>
+                <th class="p-1.5 text-left">ตำแหน่งที่ลง</th>
+                <th class="p-1.5">ค่าแรง/PH</th>
+                <th class="p-1.5">OT</th>
+                <th class="p-1.5">ค่าตำแหน่ง</th>
+                <th class="p-1.5 font-bold">รวมวัน (฿)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <tr v-for="d in selectedWageGuardDetail.dailyDetails" :key="d.dateString" :class="d.isSwapped ? 'bg-sky-50' : ''">
+                <td class="p-1.5 text-left font-mono">{{ d.dateString }} ({{ d.dayName }})</td>
+                <td class="p-1.5 text-center font-bold">{{ d.shift }}</td>
+                <td class="p-1.5 text-left">
+                  {{ d.effectivePos }}
+                  <span v-if="d.isSwapped" class="ml-1 text-[9px] bg-sky-200 text-sky-900 px-1 rounded font-bold">สลับจุด</span>
+                </td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayBase + d.dayHolBase) }}</td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayOt125 + d.dayOt250) }}</td>
+                <td class="p-1.5 font-mono font-semibold text-amber-800">{{ fmtMoney(d.posRate) }}</td>
+                <td class="p-1.5 font-mono font-bold">{{ fmtMoney(d.dayTotal) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-3 pt-2 border-t flex items-center justify-between text-sm font-bold">
+          <span>รวมค่าแรงสุทธิในรอบนี้ (รวมเบี้ยขยัน):</span>
+          <span class="text-lg text-amber-700 font-mono">{{ fmtMoney(selectedWageGuardDetail.totalPay) }} บาท</span>
+        </div>
+      </div>
+    </div>
+
+    </template>
                   <template v-else>
                     <td class="p-2.5 font-mono text-slate-600">{{ rec.code || '-' }}</td>
                     <td class="p-2.5 font-bold text-slate-900">
@@ -709,7 +868,145 @@
                       <button v-if="isAdmin" @click="startEditSpare(rec)" class="text-amber-600 hover:text-amber-800 font-semibold underline mr-1">✏️ แก้ไข</button>
                       <button @click="cancelSpare(rec)" class="text-red-600 hover:text-red-800 font-medium underline">ลบ</button>
                     </td>
-                  </template>
+                  <!-- Modal 6: บันทึกสลับจุดภายในกะ (Position Swap) -->
+    <div v-if="showSwapModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+        <h3 class="font-bold text-slate-900 text-base mb-1">🔄 บันทึกสลับจุดภายในกะ</h3>
+        <p class="text-xs text-slate-500 mb-3">เลือก รปภ. ที่มาเข้าเวรอยู่แล้วให้ย้ายไปปฏิบัติหน้าที่ในตำแหน่งที่ตัวประจำลาหรือว่าง (1 คนลงได้ 1 ตำแหน่งต่อวัน)</p>
+
+        <div class="space-y-3 text-xs mb-4 bg-sky-50/60 p-3 rounded-xl border border-sky-200">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] text-slate-600 block">วันที่:</label>
+              <input type="date" v-model="swapForm.date" class="w-full bg-white border rounded p-1.5 font-semibold">
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-600 block">กะ:</label>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" @click="swapForm.shift = 'D'"
+                        :class="swapForm.shift === 'D' ? 'bg-amber-500 text-slate-950 font-bold border-amber-600' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">☀️ เช้า</button>
+                <button type="button" @click="swapForm.shift = 'N'"
+                        :class="swapForm.shift === 'N' ? 'bg-indigo-600 text-white font-bold border-indigo-700' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">🌙 ดึก</button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">1. เลือก รปภ. ที่จะย้ายจุด (เฉพาะคนที่มาเข้าเวรกะนี้): <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.fromGuardNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือก รปภ. ที่มาเข้าเวร —</option>
+              <option v-for="g in swapOptions.workingGuards" :key="'fg-' + g.no" :value="g.no">{{ g.label }}</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">2. ย้ายไปทำแทนตำแหน่ง/จุดไหน: <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.toPositionNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือกจุดเป้าหมาย —</option>
+              <optgroup v-if="swapOptions.neededTargets.length" :label="'จุดที่ลา / ว่างอยู่ (' + swapOptions.neededTargets.length + ')'">
+                <option v-for="t in swapOptions.neededTargets" :key="'nt-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+              <optgroup label="ตำแหน่งอื่นในกะนี้">
+                <option v-for="t in swapOptions.otherTargets" :key="'ot-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">หมายเหตุ (ถ้ามี):</label>
+            <input type="text" v-model="swapForm.note" placeholder="เช่น ขึ้นแทน Sup. ลา" class="w-full bg-white border rounded p-1.5">
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="showSwapModal = false" class="w-1/2 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            ยกเลิก
+          </button>
+          <button @click="submitSwap" class="w-1/2 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition">
+            บันทึกสลับจุด
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 7: รายละเอียดค่าแรงรายวันของพนักงาน (Admin Only) -->
+    <div v-if="selectedWageGuardDetail && isAdmin" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+      <div class="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col">
+        <div class="flex items-start justify-between border-b pb-3 mb-3">
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">💰 รายละเอียดค่าแรง — {{ selectedWageGuardDetail.name }}</h3>
+            <p class="text-xs text-slate-500">No.{{ selectedWageGuardDetail.no }} · {{ selectedWageGuardDetail.position }} · รหัส {{ selectedWageGuardDetail.code || '-' }}</p>
+          </div>
+          <button @click="selectedWageGuardDetail = null" class="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+        </div>
+
+        <!-- สรุปตามสลิป -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
+          <div class="bg-slate-50 p-2 rounded border">
+            <div class="text-[10px] text-slate-500">ค่าแรง + OT ปกติ ({{ selectedWageGuardDetail.normalDays }} วัน)</div>
+            <div class="font-bold font-mono">{{ fmtMoney(selectedWageGuardDetail.totalBase + selectedWageGuardDetail.totalOt125) }} ฿</div>
+          </div>
+          <div class="bg-purple-50 p-2 rounded border border-purple-200">
+            <div class="text-[10px] text-purple-700">นักขัตฤกษ์ + OT 2.5x ({{ selectedWageGuardDetail.phDays }} วัน)</div>
+            <div class="font-bold font-mono text-purple-900">{{ fmtMoney(selectedWageGuardDetail.totalHolidayBase + selectedWageGuardDetail.totalOt250) }} ฿</div>
+          </div>
+          <div class="bg-amber-50 p-2 rounded border border-amber-200">
+            <div class="text-[10px] text-amber-800">ค่าตำแหน่งรวม</div>
+            <div class="font-bold font-mono text-amber-950">{{ fmtMoney(selectedWageGuardDetail.totalPositionPay) }} ฿</div>
+          </div>
+          <div class="bg-emerald-50 p-2 rounded border border-emerald-200">
+            <div class="text-[10px] text-emerald-800">เบี้ยขยัน ({{ selectedWageGuardDetail.eligibleDiligence ? 'ได้' : 'ไม่ได้' }})</div>
+            <div class="font-bold font-mono text-emerald-900">{{ fmtMoney(selectedWageGuardDetail.diligencePay) }} ฿</div>
+          </div>
+        </div>
+
+        <div class="mb-3 text-xs bg-amber-50/70 border border-amber-200 rounded-lg p-2">
+          <b>สรุปค่าตำแหน่งที่ปฏิบัติงานจริง:</b>
+          <span v-for="(p, i) in selectedWageGuardDetail.positionBreakdown" :key="i" class="inline-block ml-2 bg-white border border-amber-300 px-2 py-0.5 rounded">
+            {{ p.label }}: {{ p.days }} วัน × {{ p.rate }} = <b>{{ fmtMoney(p.amount) }} ฿</b>
+          </span>
+        </div>
+
+        <div class="overflow-y-auto flex-1 border rounded-lg">
+          <table class="w-full text-[11px] text-right border-collapse">
+            <thead class="bg-slate-900 text-white sticky top-0">
+              <tr>
+                <th class="p-1.5 text-left">วันที่</th>
+                <th class="p-1.5 text-center">กะ</th>
+                <th class="p-1.5 text-left">ตำแหน่งที่ลง</th>
+                <th class="p-1.5">ค่าแรง/PH</th>
+                <th class="p-1.5">OT</th>
+                <th class="p-1.5">ค่าตำแหน่ง</th>
+                <th class="p-1.5 font-bold">รวมวัน (฿)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <tr v-for="d in selectedWageGuardDetail.dailyDetails" :key="d.dateString" :class="d.isSwapped ? 'bg-sky-50' : ''">
+                <td class="p-1.5 text-left font-mono">{{ d.dateString }} ({{ d.dayName }})</td>
+                <td class="p-1.5 text-center font-bold">{{ d.shift }}</td>
+                <td class="p-1.5 text-left">
+                  {{ d.effectivePos }}
+                  <span v-if="d.isSwapped" class="ml-1 text-[9px] bg-sky-200 text-sky-900 px-1 rounded font-bold">สลับจุด</span>
+                </td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayBase + d.dayHolBase) }}</td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayOt125 + d.dayOt250) }}</td>
+                <td class="p-1.5 font-mono font-semibold text-amber-800">{{ fmtMoney(d.posRate) }}</td>
+                <td class="p-1.5 font-mono font-bold">{{ fmtMoney(d.dayTotal) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-3 pt-2 border-t flex items-center justify-between text-sm font-bold">
+          <span>รวมค่าแรงสุทธิในรอบนี้ (รวมเบี้ยขยัน):</span>
+          <span class="text-lg text-amber-700 font-mono">{{ fmtMoney(selectedWageGuardDetail.totalPay) }} บาท</span>
+        </div>
+      </div>
+    </div>
+
+    </template>
                 </tr>
               </tbody>
             </table>
@@ -809,7 +1106,145 @@
                           :class="st ? spareStatusClass(st[blk.k]) : ''">{{ st && st[blk.k].status !== 'none' ? (st[blk.k].status === 'ok' ? '✓' : (st[blk.k].status === 'short' ? 'ขาด' : 'รอ') + ' ' + st[blk.k].missing) : '' }}</td>
                       <td colspan="4" class="border border-slate-300"></td>
                     </tr>
-                  </template>
+                  <!-- Modal 6: บันทึกสลับจุดภายในกะ (Position Swap) -->
+    <div v-if="showSwapModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+        <h3 class="font-bold text-slate-900 text-base mb-1">🔄 บันทึกสลับจุดภายในกะ</h3>
+        <p class="text-xs text-slate-500 mb-3">เลือก รปภ. ที่มาเข้าเวรอยู่แล้วให้ย้ายไปปฏิบัติหน้าที่ในตำแหน่งที่ตัวประจำลาหรือว่าง (1 คนลงได้ 1 ตำแหน่งต่อวัน)</p>
+
+        <div class="space-y-3 text-xs mb-4 bg-sky-50/60 p-3 rounded-xl border border-sky-200">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] text-slate-600 block">วันที่:</label>
+              <input type="date" v-model="swapForm.date" class="w-full bg-white border rounded p-1.5 font-semibold">
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-600 block">กะ:</label>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" @click="swapForm.shift = 'D'"
+                        :class="swapForm.shift === 'D' ? 'bg-amber-500 text-slate-950 font-bold border-amber-600' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">☀️ เช้า</button>
+                <button type="button" @click="swapForm.shift = 'N'"
+                        :class="swapForm.shift === 'N' ? 'bg-indigo-600 text-white font-bold border-indigo-700' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">🌙 ดึก</button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">1. เลือก รปภ. ที่จะย้ายจุด (เฉพาะคนที่มาเข้าเวรกะนี้): <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.fromGuardNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือก รปภ. ที่มาเข้าเวร —</option>
+              <option v-for="g in swapOptions.workingGuards" :key="'fg-' + g.no" :value="g.no">{{ g.label }}</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">2. ย้ายไปทำแทนตำแหน่ง/จุดไหน: <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.toPositionNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือกจุดเป้าหมาย —</option>
+              <optgroup v-if="swapOptions.neededTargets.length" :label="'จุดที่ลา / ว่างอยู่ (' + swapOptions.neededTargets.length + ')'">
+                <option v-for="t in swapOptions.neededTargets" :key="'nt-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+              <optgroup label="ตำแหน่งอื่นในกะนี้">
+                <option v-for="t in swapOptions.otherTargets" :key="'ot-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">หมายเหตุ (ถ้ามี):</label>
+            <input type="text" v-model="swapForm.note" placeholder="เช่น ขึ้นแทน Sup. ลา" class="w-full bg-white border rounded p-1.5">
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="showSwapModal = false" class="w-1/2 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            ยกเลิก
+          </button>
+          <button @click="submitSwap" class="w-1/2 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition">
+            บันทึกสลับจุด
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 7: รายละเอียดค่าแรงรายวันของพนักงาน (Admin Only) -->
+    <div v-if="selectedWageGuardDetail && isAdmin" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+      <div class="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col">
+        <div class="flex items-start justify-between border-b pb-3 mb-3">
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">💰 รายละเอียดค่าแรง — {{ selectedWageGuardDetail.name }}</h3>
+            <p class="text-xs text-slate-500">No.{{ selectedWageGuardDetail.no }} · {{ selectedWageGuardDetail.position }} · รหัส {{ selectedWageGuardDetail.code || '-' }}</p>
+          </div>
+          <button @click="selectedWageGuardDetail = null" class="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+        </div>
+
+        <!-- สรุปตามสลิป -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
+          <div class="bg-slate-50 p-2 rounded border">
+            <div class="text-[10px] text-slate-500">ค่าแรง + OT ปกติ ({{ selectedWageGuardDetail.normalDays }} วัน)</div>
+            <div class="font-bold font-mono">{{ fmtMoney(selectedWageGuardDetail.totalBase + selectedWageGuardDetail.totalOt125) }} ฿</div>
+          </div>
+          <div class="bg-purple-50 p-2 rounded border border-purple-200">
+            <div class="text-[10px] text-purple-700">นักขัตฤกษ์ + OT 2.5x ({{ selectedWageGuardDetail.phDays }} วัน)</div>
+            <div class="font-bold font-mono text-purple-900">{{ fmtMoney(selectedWageGuardDetail.totalHolidayBase + selectedWageGuardDetail.totalOt250) }} ฿</div>
+          </div>
+          <div class="bg-amber-50 p-2 rounded border border-amber-200">
+            <div class="text-[10px] text-amber-800">ค่าตำแหน่งรวม</div>
+            <div class="font-bold font-mono text-amber-950">{{ fmtMoney(selectedWageGuardDetail.totalPositionPay) }} ฿</div>
+          </div>
+          <div class="bg-emerald-50 p-2 rounded border border-emerald-200">
+            <div class="text-[10px] text-emerald-800">เบี้ยขยัน ({{ selectedWageGuardDetail.eligibleDiligence ? 'ได้' : 'ไม่ได้' }})</div>
+            <div class="font-bold font-mono text-emerald-900">{{ fmtMoney(selectedWageGuardDetail.diligencePay) }} ฿</div>
+          </div>
+        </div>
+
+        <div class="mb-3 text-xs bg-amber-50/70 border border-amber-200 rounded-lg p-2">
+          <b>สรุปค่าตำแหน่งที่ปฏิบัติงานจริง:</b>
+          <span v-for="(p, i) in selectedWageGuardDetail.positionBreakdown" :key="i" class="inline-block ml-2 bg-white border border-amber-300 px-2 py-0.5 rounded">
+            {{ p.label }}: {{ p.days }} วัน × {{ p.rate }} = <b>{{ fmtMoney(p.amount) }} ฿</b>
+          </span>
+        </div>
+
+        <div class="overflow-y-auto flex-1 border rounded-lg">
+          <table class="w-full text-[11px] text-right border-collapse">
+            <thead class="bg-slate-900 text-white sticky top-0">
+              <tr>
+                <th class="p-1.5 text-left">วันที่</th>
+                <th class="p-1.5 text-center">กะ</th>
+                <th class="p-1.5 text-left">ตำแหน่งที่ลง</th>
+                <th class="p-1.5">ค่าแรง/PH</th>
+                <th class="p-1.5">OT</th>
+                <th class="p-1.5">ค่าตำแหน่ง</th>
+                <th class="p-1.5 font-bold">รวมวัน (฿)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <tr v-for="d in selectedWageGuardDetail.dailyDetails" :key="d.dateString" :class="d.isSwapped ? 'bg-sky-50' : ''">
+                <td class="p-1.5 text-left font-mono">{{ d.dateString }} ({{ d.dayName }})</td>
+                <td class="p-1.5 text-center font-bold">{{ d.shift }}</td>
+                <td class="p-1.5 text-left">
+                  {{ d.effectivePos }}
+                  <span v-if="d.isSwapped" class="ml-1 text-[9px] bg-sky-200 text-sky-900 px-1 rounded font-bold">สลับจุด</span>
+                </td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayBase + d.dayHolBase) }}</td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayOt125 + d.dayOt250) }}</td>
+                <td class="p-1.5 font-mono font-semibold text-amber-800">{{ fmtMoney(d.posRate) }}</td>
+                <td class="p-1.5 font-mono font-bold">{{ fmtMoney(d.dayTotal) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-3 pt-2 border-t flex items-center justify-between text-sm font-bold">
+          <span>รวมค่าแรงสุทธิในรอบนี้ (รวมเบี้ยขยัน):</span>
+          <span class="text-lg text-amber-700 font-mono">{{ fmtMoney(selectedWageGuardDetail.totalPay) }} บาท</span>
+        </div>
+      </div>
+    </div>
+
+    </template>
                 </tfoot>
               </table>
             </div>
@@ -1395,6 +1830,261 @@
         </div>
       </section>
 
+      <!-- ===================================================================== -->
+      <!-- TAB: สลับจุดภายในกะ (Position Swap - Sup / Admin)                      -->
+      <!-- ===================================================================== -->
+      <section v-if="currentTab === 'position_swap' && isSupervisor" class="space-y-4">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+              <span>🔄 สลับจุดปฏิบัติงานภายในกะ (Position Swap)</span>
+              <span class="text-[10px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded font-bold">Sup / Admin</span>
+            </h2>
+            <p class="text-xs text-slate-500">ย้าย รปภ. ที่มาเข้าเวรในกะนั้นอยู่แล้ว ไปทำตำแหน่งอื่นที่ตัวประจำลาหรือว่าง (1 คนลงได้ 1 ตำแหน่งต่อวัน · ลิงก์ไปใบลงชื่อ, สรุปขอสแปร์ และคำนวณค่าตำแหน่งอัตโนมัติ)</p>
+          </div>
+          <button @click="openSwapModal()" class="bg-sky-600 hover:bg-sky-500 text-white font-bold px-3.5 py-2 rounded-lg text-xs shadow-sm transition flex items-center gap-1.5">
+            ➕ บันทึกสลับจุด
+          </button>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div v-if="positionSwaps.length === 0" class="p-8 text-center text-slate-400 text-xs">
+            ยังไม่มีรายการสลับจุดในระบบ
+          </div>
+          <div v-else class="overflow-x-auto">
+            <table class="w-full text-xs text-left">
+              <thead class="bg-slate-900 text-white font-semibold">
+                <tr>
+                  <th class="p-2.5 text-center w-12">ลำดับ</th>
+                  <th class="p-2.5">วันที่</th>
+                  <th class="p-2.5 text-center">กะ</th>
+                  <th class="p-2.5">รหัส</th>
+                  <th class="p-2.5">ชื่อ - สกุล (ผู้ย้ายจุด)</th>
+                  <th class="p-2.5">ตำแหน่งเดิม</th>
+                  <th class="p-2.5">ย้ายไปทำแทนจุด</th>
+                  <th class="p-2.5">หมายเหตุ</th>
+                  <th class="p-2.5">ผู้บันทึก</th>
+                  <th class="p-2.5 text-center">จัดการ</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="(sw, idx) in positionSwaps" :key="sw.id" class="hover:bg-slate-50">
+                  <td class="p-2.5 text-center text-slate-500">{{ idx + 1 }}</td>
+                  <td class="p-2.5 font-mono font-bold">{{ sw.date }}</td>
+                  <td class="p-2.5 text-center font-bold" :class="sw.shift === 'D' ? 'text-amber-600' : 'text-indigo-600'">
+                    {{ sw.shift === 'D' ? 'เช้า (D)' : 'ดึก (N)' }}
+                  </td>
+                  <td class="p-2.5 font-mono text-slate-600">{{ sw.fromGuardCode || '-' }}</td>
+                  <td class="p-2.5 font-bold text-slate-900">{{ sw.fromGuardName }}</td>
+                  <td class="p-2.5 text-slate-600">No.{{ sw.fromGuardNo }} {{ sw.fromPositionName }}</td>
+                  <td class="p-2.5 font-bold text-sky-800">
+                    ➔ No.{{ sw.toPositionNo }} {{ sw.toPositionName }}
+                    <span class="text-[10px] text-slate-500 font-normal block">({{ sw.toPersonName }})</span>
+                  </td>
+                  <td class="p-2.5 text-slate-500">{{ sw.note || '-' }}</td>
+                  <td class="p-2.5 text-slate-500 text-[11px]">{{ sw.loggedBy }}</td>
+                  <td class="p-2.5 text-center">
+                    <button @click="cancelSwap(sw)" class="text-red-600 hover:text-red-800 font-medium underline">ยกเลิก</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================================================================== -->
+      <!-- TAB: อัตราค่าแรง & สรุปเงินเดือน (ADMIN ONLY)                          -->
+      <!-- ===================================================================== -->
+      <section v-if="currentTab === 'wage_summary' && isAdmin" class="space-y-4">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-center justify-between gap-3 no-print">
+          <div>
+            <h2 class="text-base font-bold text-slate-800 flex items-center gap-2">
+              <span>💰 อัตราค่าแรงและสรุปรายได้ตามสลิปบริษัท</span>
+              <span class="text-[10px] bg-red-100 text-red-800 px-2 py-0.5 rounded font-bold">Admin Only</span>
+            </h2>
+            <p class="text-xs text-slate-500">
+              รอบ: <b>{{ currentCycle.name }}</b> (23 {{ currentCycle.startMonth }} - 22 {{ currentCycle.endMonth }}) ·
+              คิดตามตำแหน่งที่ปฏิบัติงานจริงแต่ละวัน (รวมสลับจุด) + เบี้ยขยันเมื่อไม่ลาและทำงาน ≥ {{ wageConfig.diligenceMinDays }} วัน
+            </p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-xs">
+            <button @click="showWageSettings = !showWageSettings"
+                    class="bg-slate-800 hover:bg-slate-700 text-white font-semibold px-3 py-1.5 rounded-lg transition">
+              ⚙️ {{ showWageSettings ? 'ซ่อนตั้งค่าอัตราค่าแรง' : 'ตั้งค่าอัตราค่าแรง' }}
+            </button>
+            <button @click="exportWageCsv" class="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-sm transition">
+              ⬇️ Export (Excel/CSV)
+            </button>
+            <button @click="printWageSummary" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-3 py-1.5 rounded-lg shadow-sm transition">
+              🖨️ พิมพ์สรุปค่าแรง
+            </button>
+          </div>
+        </div>
+
+        <!-- ตั้งค่าอัตราค่าแรง (Admin แก้ไขได้) -->
+        <div v-if="showWageSettings" class="bg-white p-4 rounded-xl shadow-sm border border-amber-300 space-y-4 no-print">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2">
+            <div>
+              <h3 class="text-sm font-bold text-slate-800">⚙️ ตั้งค่าอัตราค่าแรงมาตรฐาน (บาท/วัน)</h3>
+              <p class="text-[11px] text-slate-500">แก้ไขได้เฉพาะ Admin · ใช้คำนวณในตารางสรุปด้านล่างทันที</p>
+            </div>
+            <div class="flex gap-2 text-xs">
+              <button @click="resetWageConfigDefault" class="px-2.5 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-50">รีเซ็ตค่าเริ่มต้น</button>
+              <button @click="saveWageConfig" class="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold">💾 บันทึกอัตราค่าแรง</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+            <div class="bg-slate-50 p-2 rounded-lg border">
+              <label class="text-[10px] text-slate-600 block">ค่าแรง 8 ชม./วัน</label>
+              <input type="number" v-model.number="wageConfig.baseWage" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+            </div>
+            <div class="bg-slate-50 p-2 rounded-lg border">
+              <label class="text-[10px] text-slate-600 block">OT 1.25x (4 ชม./วัน)</label>
+              <input type="number" v-model.number="wageConfig.otNormal" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+            </div>
+            <div class="bg-purple-50 p-2 rounded-lg border border-purple-200">
+              <label class="text-[10px] text-purple-800 block">วันนักขัตฤกษ์ (PH)</label>
+              <input type="number" v-model.number="wageConfig.holidayWage" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+            </div>
+            <div class="bg-purple-50 p-2 rounded-lg border border-purple-200">
+              <label class="text-[10px] text-purple-800 block">OT 2.5x วัน PH (4 ชม.)</label>
+              <input type="number" v-model.number="wageConfig.otHoliday" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+            </div>
+            <div class="bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+              <label class="text-[10px] text-emerald-800 block">เบี้ยขยัน (บาท/วัน)</label>
+              <input type="number" v-model.number="wageConfig.diligencePerDay" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+            </div>
+            <div class="bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+              <label class="text-[10px] text-emerald-800 block">เกณฑ์วันทำงาน (เบี้ยขยัน)</label>
+              <input type="number" v-model.number="wageConfig.diligenceMinDays" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+            </div>
+          </div>
+
+          <div>
+            <h4 class="text-xs font-bold text-slate-700 mb-2">ค่าตำแหน่งตามจุดปฏิบัติงาน (บาท/วัน)</h4>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+              <div v-for="(val, key) in wageConfig.positionRates" :key="key" class="bg-amber-50/50 p-2 rounded-lg border border-amber-200">
+                <label class="text-[10px] text-slate-700 font-semibold block">{{ getPositionAllowanceLabel(key) }}</label>
+                <input type="number" v-model.number="wageConfig.positionRates[key]" class="w-full bg-white border rounded p-1 font-bold font-mono mt-0.5">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- สรุปยอดรวมทั้งรอบ + ตารางสรุปค่าแรงรายบุคคล (Printable) -->
+        <div id="printableWageArea" class="bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-slate-200 text-slate-900 space-y-4">
+          <div class="text-center border-b border-slate-300 pb-3">
+            <h1 class="text-base font-bold">CONTINENTAL TYRES (THAILAND) CO., LTD.</h1>
+            <h2 class="text-sm font-semibold">รายงานสรุปอัตราค่าแรงและค่าตำแหน่ง รปภ. — {{ currentCycle.name }}</h2>
+            <p class="text-[11px] text-slate-600">ช่วงวันที่ 23 {{ currentCycle.startMonth }} - 22 {{ currentCycle.endMonth }} | จ่าย: 1 {{ currentCycle.payDateMonth }}</p>
+          </div>
+
+          <!-- Summary KPI Cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-center text-xs">
+            <div class="bg-slate-50 border rounded-lg p-2">
+              <div class="text-[10px] text-slate-500">ค่าแรงพื้นฐาน (400)</div>
+              <div class="text-sm font-bold font-mono">{{ fmtMoney(wageGrandTotals.base) }}</div>
+            </div>
+            <div class="bg-slate-50 border rounded-lg p-2">
+              <div class="text-[10px] text-slate-500">OT 1.25x (250)</div>
+              <div class="text-sm font-bold font-mono">{{ fmtMoney(wageGrandTotals.ot125) }}</div>
+            </div>
+            <div class="bg-purple-50 border border-purple-200 rounded-lg p-2">
+              <div class="text-[10px] text-purple-700">นักขัตฤกษ์ (400)</div>
+              <div class="text-sm font-bold font-mono text-purple-900">{{ fmtMoney(wageGrandTotals.holBase) }}</div>
+            </div>
+            <div class="bg-purple-50 border border-purple-200 rounded-lg p-2">
+              <div class="text-[10px] text-purple-700">OT 2.5x PH (500)</div>
+              <div class="text-sm font-bold font-mono text-purple-900">{{ fmtMoney(wageGrandTotals.ot250) }}</div>
+            </div>
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-2">
+              <div class="text-[10px] text-amber-800">ค่าตำแหน่งรวม</div>
+              <div class="text-sm font-bold font-mono text-amber-950">{{ fmtMoney(wageGrandTotals.positionPay) }}</div>
+            </div>
+            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-2">
+              <div class="text-[10px] text-emerald-800">เบี้ยขยันรวม</div>
+              <div class="text-sm font-bold font-mono text-emerald-900">{{ fmtMoney(wageGrandTotals.diligence) }}</div>
+            </div>
+            <div class="bg-slate-900 text-white rounded-lg p-2 col-span-2 sm:col-span-1">
+              <div class="text-[10px] text-amber-300">รวมจ่ายสุทธิ (บาท)</div>
+              <div class="text-sm font-bold font-mono text-amber-400">{{ fmtMoney(wageGrandTotals.total) }}</div>
+            </div>
+          </div>
+
+          <!-- ตารางรายบุคคล -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-[11px] text-right border border-slate-300 border-collapse">
+              <thead class="bg-slate-900 text-white font-semibold">
+                <tr>
+                  <th class="p-1.5 border border-slate-700 text-center">No.</th>
+                  <th class="p-1.5 border border-slate-700 text-left">รหัส</th>
+                  <th class="p-1.5 border border-slate-700 text-left">ชื่อ - สกุล</th>
+                  <th class="p-1.5 border border-slate-700 text-left">ตำแหน่งหลัก</th>
+                  <th class="p-1.5 border border-slate-700 text-center">วันปกติ</th>
+                  <th class="p-1.5 border border-slate-700 text-center">PH</th>
+                  <th class="p-1.5 border border-slate-700 text-center">ลา</th>
+                  <th class="p-1.5 border border-slate-700 text-center">สลับจุด</th>
+                  <th class="p-1.5 border border-slate-700">ค่าแรง (400)</th>
+                  <th class="p-1.5 border border-slate-700">OT 1.25x (250)</th>
+                  <th class="p-1.5 border border-slate-700">PH (400)</th>
+                  <th class="p-1.5 border border-slate-700">OT 2.5x (500)</th>
+                  <th class="p-1.5 border border-slate-700">ค่าตำแหน่งรวม</th>
+                  <th class="p-1.5 border border-slate-700">เบี้ยขยัน</th>
+                  <th class="p-1.5 border border-slate-700 bg-amber-600 text-slate-950 font-bold">รวมสุทธิ (฿)</th>
+                  <th class="p-1.5 border border-slate-700 text-center no-print">รายละเอียด</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-200">
+                <tr v-for="r in wageSummaries" :key="r.no" :class="r.isSpare ? 'bg-slate-100/70 text-slate-400' : 'hover:bg-amber-50/50'">
+                  <td class="p-1.5 border border-slate-200 text-center">{{ r.no }}</td>
+                  <td class="p-1.5 border border-slate-200 text-left font-mono">{{ r.code || '-' }}</td>
+                  <td class="p-1.5 border border-slate-200 text-left font-semibold text-slate-900">{{ r.name }}</td>
+                  <td class="p-1.5 border border-slate-200 text-left">{{ r.position }}</td>
+                  <td class="p-1.5 border border-slate-200 text-center">{{ r.normalDays }}</td>
+                  <td class="p-1.5 border border-slate-200 text-center text-purple-700 font-bold">{{ r.phDays }}</td>
+                  <td class="p-1.5 border border-slate-200 text-center" :class="r.leaveDays > 0 ? 'text-red-600 font-bold' : ''">{{ r.leaveDays }}</td>
+                  <td class="p-1.5 border border-slate-200 text-center">
+                    <span v-if="r.swappedDays > 0" class="bg-sky-100 text-sky-800 font-bold px-1.5 py-0.5 rounded text-[10px]">{{ r.swappedDays }} วัน</span>
+                    <span v-else class="text-slate-300">-</span>
+                  </td>
+                  <td class="p-1.5 border border-slate-200 font-mono">{{ fmtMoney(r.totalBase) }}</td>
+                  <td class="p-1.5 border border-slate-200 font-mono">{{ fmtMoney(r.totalOt125) }}</td>
+                  <td class="p-1.5 border border-slate-200 font-mono">{{ fmtMoney(r.totalHolidayBase) }}</td>
+                  <td class="p-1.5 border border-slate-200 font-mono">{{ fmtMoney(r.totalOt250) }}</td>
+                  <td class="p-1.5 border border-slate-200 font-mono font-semibold text-amber-900"
+                      :title="r.positionBreakdown.map(p => p.label + ': ' + p.days + ' วัน x ' + p.rate + ' = ' + p.amount).join('\n')">
+                    {{ fmtMoney(r.totalPositionPay) }}
+                  </td>
+                  <td class="p-1.5 border border-slate-200 font-mono" :class="r.eligibleDiligence ? 'text-emerald-700 font-bold' : 'text-slate-400'">
+                    {{ fmtMoney(r.diligencePay) }}
+                  </td>
+                  <td class="p-1.5 border border-slate-200 font-mono font-bold bg-amber-50 text-slate-950">{{ fmtMoney(r.totalPay) }}</td>
+                  <td class="p-1.5 border border-slate-200 text-center no-print">
+                    <button @click="selectedWageGuardDetail = r" class="text-sky-700 hover:underline font-semibold">ดูรายวัน</button>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot class="bg-slate-100 font-bold">
+                <tr>
+                  <td colspan="4" class="p-1.5 border border-slate-300 text-left">รวมทั้งหมด (เฉพาะ รปภ.ประจำ)</td>
+                  <td colspan="4" class="p-1.5 border border-slate-300 text-center">{{ wageGrandTotals.workDays }} วันทำงาน</td>
+                  <td class="p-1.5 border border-slate-300 font-mono">{{ fmtMoney(wageGrandTotals.base) }}</td>
+                  <td class="p-1.5 border border-slate-300 font-mono">{{ fmtMoney(wageGrandTotals.ot125) }}</td>
+                  <td class="p-1.5 border border-slate-300 font-mono">{{ fmtMoney(wageGrandTotals.holBase) }}</td>
+                  <td class="p-1.5 border border-slate-300 font-mono">{{ fmtMoney(wageGrandTotals.ot250) }}</td>
+                  <td class="p-1.5 border border-slate-300 font-mono text-amber-900">{{ fmtMoney(wageGrandTotals.positionPay) }}</td>
+                  <td class="p-1.5 border border-slate-300 font-mono text-emerald-800">{{ fmtMoney(wageGrandTotals.diligence) }}</td>
+                  <td class="p-1.5 border border-slate-300 font-mono bg-amber-200 text-slate-950">{{ fmtMoney(wageGrandTotals.total) }}</td>
+                  <td class="p-1.5 border border-slate-300 no-print"></td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </div>
+      </section>
+
     </main>
 
     <!-- Modals -->
@@ -1706,6 +2396,144 @@
           <button @click="submitSpare" class="w-1/2 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold transition">
             บันทึกสแปร์
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 6: บันทึกสลับจุดภายในกะ (Position Swap) -->
+    <div v-if="showSwapModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl border border-slate-200">
+        <h3 class="font-bold text-slate-900 text-base mb-1">🔄 บันทึกสลับจุดภายในกะ</h3>
+        <p class="text-xs text-slate-500 mb-3">เลือก รปภ. ที่มาเข้าเวรอยู่แล้วให้ย้ายไปปฏิบัติหน้าที่ในตำแหน่งที่ตัวประจำลาหรือว่าง (1 คนลงได้ 1 ตำแหน่งต่อวัน)</p>
+
+        <div class="space-y-3 text-xs mb-4 bg-sky-50/60 p-3 rounded-xl border border-sky-200">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] text-slate-600 block">วันที่:</label>
+              <input type="date" v-model="swapForm.date" class="w-full bg-white border rounded p-1.5 font-semibold">
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-600 block">กะ:</label>
+              <div class="grid grid-cols-2 gap-1">
+                <button type="button" @click="swapForm.shift = 'D'"
+                        :class="swapForm.shift === 'D' ? 'bg-amber-500 text-slate-950 font-bold border-amber-600' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">☀️ เช้า</button>
+                <button type="button" @click="swapForm.shift = 'N'"
+                        :class="swapForm.shift === 'N' ? 'bg-indigo-600 text-white font-bold border-indigo-700' : 'bg-white border text-slate-700'"
+                        class="py-1.5 border rounded">🌙 ดึก</button>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">1. เลือก รปภ. ที่จะย้ายจุด (เฉพาะคนที่มาเข้าเวรกะนี้): <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.fromGuardNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือก รปภ. ที่มาเข้าเวร —</option>
+              <option v-for="g in swapOptions.workingGuards" :key="'fg-' + g.no" :value="g.no">{{ g.label }}</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">2. ย้ายไปทำแทนตำแหน่ง/จุดไหน: <span class="text-red-500">*</span></label>
+            <select v-model="swapForm.toPositionNo" class="w-full bg-white border rounded p-1.5 font-semibold">
+              <option value="">— เลือกจุดเป้าหมาย —</option>
+              <optgroup v-if="swapOptions.neededTargets.length" :label="'จุดที่ลา / ว่างอยู่ (' + swapOptions.neededTargets.length + ')'">
+                <option v-for="t in swapOptions.neededTargets" :key="'nt-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+              <optgroup label="ตำแหน่งอื่นในกะนี้">
+                <option v-for="t in swapOptions.otherTargets" :key="'ot-' + t.no" :value="t.no">{{ t.label }}</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label class="text-[10px] text-slate-600 block">หมายเหตุ (ถ้ามี):</label>
+            <input type="text" v-model="swapForm.note" placeholder="เช่น ขึ้นแทน Sup. ลา" class="w-full bg-white border rounded p-1.5">
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button @click="showSwapModal = false" class="w-1/2 py-2 rounded-xl border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+            ยกเลิก
+          </button>
+          <button @click="submitSwap" class="w-1/2 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition">
+            บันทึกสลับจุด
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal 7: รายละเอียดค่าแรงรายวันของพนักงาน (Admin Only) -->
+    <div v-if="selectedWageGuardDetail && isAdmin" class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 no-print">
+      <div class="bg-white rounded-2xl p-6 max-w-2xl w-full shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col">
+        <div class="flex items-start justify-between border-b pb-3 mb-3">
+          <div>
+            <h3 class="font-bold text-slate-900 text-base">💰 รายละเอียดค่าแรง — {{ selectedWageGuardDetail.name }}</h3>
+            <p class="text-xs text-slate-500">No.{{ selectedWageGuardDetail.no }} · {{ selectedWageGuardDetail.position }} · รหัส {{ selectedWageGuardDetail.code || '-' }}</p>
+          </div>
+          <button @click="selectedWageGuardDetail = null" class="text-slate-400 hover:text-slate-700 font-bold text-lg">✕</button>
+        </div>
+
+        <!-- สรุปตามสลิป -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs mb-3">
+          <div class="bg-slate-50 p-2 rounded border">
+            <div class="text-[10px] text-slate-500">ค่าแรง + OT ปกติ ({{ selectedWageGuardDetail.normalDays }} วัน)</div>
+            <div class="font-bold font-mono">{{ fmtMoney(selectedWageGuardDetail.totalBase + selectedWageGuardDetail.totalOt125) }} ฿</div>
+          </div>
+          <div class="bg-purple-50 p-2 rounded border border-purple-200">
+            <div class="text-[10px] text-purple-700">นักขัตฤกษ์ + OT 2.5x ({{ selectedWageGuardDetail.phDays }} วัน)</div>
+            <div class="font-bold font-mono text-purple-900">{{ fmtMoney(selectedWageGuardDetail.totalHolidayBase + selectedWageGuardDetail.totalOt250) }} ฿</div>
+          </div>
+          <div class="bg-amber-50 p-2 rounded border border-amber-200">
+            <div class="text-[10px] text-amber-800">ค่าตำแหน่งรวม</div>
+            <div class="font-bold font-mono text-amber-950">{{ fmtMoney(selectedWageGuardDetail.totalPositionPay) }} ฿</div>
+          </div>
+          <div class="bg-emerald-50 p-2 rounded border border-emerald-200">
+            <div class="text-[10px] text-emerald-800">เบี้ยขยัน ({{ selectedWageGuardDetail.eligibleDiligence ? 'ได้' : 'ไม่ได้' }})</div>
+            <div class="font-bold font-mono text-emerald-900">{{ fmtMoney(selectedWageGuardDetail.diligencePay) }} ฿</div>
+          </div>
+        </div>
+
+        <div class="mb-3 text-xs bg-amber-50/70 border border-amber-200 rounded-lg p-2">
+          <b>สรุปค่าตำแหน่งที่ปฏิบัติงานจริง:</b>
+          <span v-for="(p, i) in selectedWageGuardDetail.positionBreakdown" :key="i" class="inline-block ml-2 bg-white border border-amber-300 px-2 py-0.5 rounded">
+            {{ p.label }}: {{ p.days }} วัน × {{ p.rate }} = <b>{{ fmtMoney(p.amount) }} ฿</b>
+          </span>
+        </div>
+
+        <div class="overflow-y-auto flex-1 border rounded-lg">
+          <table class="w-full text-[11px] text-right border-collapse">
+            <thead class="bg-slate-900 text-white sticky top-0">
+              <tr>
+                <th class="p-1.5 text-left">วันที่</th>
+                <th class="p-1.5 text-center">กะ</th>
+                <th class="p-1.5 text-left">ตำแหน่งที่ลง</th>
+                <th class="p-1.5">ค่าแรง/PH</th>
+                <th class="p-1.5">OT</th>
+                <th class="p-1.5">ค่าตำแหน่ง</th>
+                <th class="p-1.5 font-bold">รวมวัน (฿)</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              <tr v-for="d in selectedWageGuardDetail.dailyDetails" :key="d.dateString" :class="d.isSwapped ? 'bg-sky-50' : ''">
+                <td class="p-1.5 text-left font-mono">{{ d.dateString }} ({{ d.dayName }})</td>
+                <td class="p-1.5 text-center font-bold">{{ d.shift }}</td>
+                <td class="p-1.5 text-left">
+                  {{ d.effectivePos }}
+                  <span v-if="d.isSwapped" class="ml-1 text-[9px] bg-sky-200 text-sky-900 px-1 rounded font-bold">สลับจุด</span>
+                </td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayBase + d.dayHolBase) }}</td>
+                <td class="p-1.5 font-mono">{{ fmtMoney(d.dayOt125 + d.dayOt250) }}</td>
+                <td class="p-1.5 font-mono font-semibold text-amber-800">{{ fmtMoney(d.posRate) }}</td>
+                <td class="p-1.5 font-mono font-bold">{{ fmtMoney(d.dayTotal) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-3 pt-2 border-t flex items-center justify-between text-sm font-bold">
+          <span>รวมค่าแรงสุทธิในรอบนี้ (รวมเบี้ยขยัน):</span>
+          <span class="text-lg text-amber-700 font-mono">{{ fmtMoney(selectedWageGuardDetail.totalPay) }} บาท</span>
         </div>
       </div>
     </div>
