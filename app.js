@@ -2267,6 +2267,10 @@ createApp({
     }
 
     // สรุปค่าแรงรายบุคคลในรอบที่กำลังเลือกอยู่ (เฉพาะ Admin)
+    // กฎวันนักขัตฤกษ์ (PH):
+    //  - ทุกคนได้ค่า PH 400 บ./วัน ไม่ว่าจะมาทำงานหรือไม่ (shift = PH หรือ H ในวัน PH)
+    //  - คนที่มาทำงาน (shift = PH): ได้ OT 2.5x (500 บ.) เพิ่ม แต่ไม่ได้ OT 1.25x
+    //  - คนที่ไม่มาทำงาน (shift = H/L/ว่าง ในวัน PH): ได้แค่ค่า PH 400 บ. ไม่ได้ OT ใดๆ
     const wageSummaries = computed(() => {
       if (!isAdmin.value) return [];
       const cfg = wageConfig.value;
@@ -2277,21 +2281,49 @@ createApp({
         .filter(g => !g.isReliefPool)
         .map(guard => {
           let normalDays = 0;
-          let phDays = 0;
+          let phDaysWorked = 0;    // มาทำงานวัน PH (ได้ทั้ง 400 + OT 2.5x)
+          let phDaysOff = 0;       // ไม่มาทำงานวัน PH (ได้แค่ 400)
           let offDays = 0;
           let leaveDays = 0;
           let swappedDays = 0;
           let totalBase = 0;
           let totalOt125 = 0;
-          let totalHolidayBase = 0;
-          let totalOt250 = 0;
+          let totalHolidayBase = 0;  // ค่า PH 400 รวม (ทั้งมาและไม่มา)
+          let totalOt250 = 0;        // OT 2.5x เฉพาะคนที่มาทำวัน PH
           let totalPositionPay = 0;
 
-          const posMap = {}; // key -> { label, days, rate, amount }
+          const posMap = {};
           const dailyDetails = [];
 
           days.forEach((day, dIdx) => {
             const s = guard.shifts[dIdx];
+            const isPH = day.isHoliday || false; // วันนักขัตฤกษ์จริง
+
+            // กรณีวันนักขัตฤกษ์ที่ไม่ได้มาทำงาน (H หรือ L แต่วันนั้นเป็น PH)
+            if (isPH && (s === 'H' || s === 'L')) {
+              // ได้ค่า PH 400 บ. แต่ไม่มี OT ใดๆ ไม่มีค่าตำแหน่ง
+              const dayHolBase = Number(cfg.holidayWage || 0);
+              totalHolidayBase += dayHolBase;
+              phDaysOff++;
+              if (s === 'L') leaveDays++;
+              dailyDetails.push({
+                dateString: day.dateString,
+                dayName: day.dayName,
+                shift: s === 'L' ? 'L(PH)' : 'H(PH)',
+                isSwapped: false,
+                fromPos: guard.position,
+                effectivePos: '— ไม่ได้มาทำงาน —',
+                dayBase: 0,
+                dayOt125: 0,
+                dayHolBase: dayHolBase,
+                dayOt250: 0,
+                posRate: 0,
+                isPHNotWorked: true,
+                dayTotal: dayHolBase
+              });
+              return;
+            }
+
             if (s === 'H') { offDays++; return; }
             if (s === 'L') { leaveDays++; return; }
             if (s !== 'D' && s !== 'N' && s !== 'PH') return;
@@ -2314,12 +2346,14 @@ createApp({
             let dayOt250 = 0;
 
             if (s === 'PH') {
-              phDays++;
+              // มาทำงานวัน PH: ได้ 400 (PH) + OT 2.5x (500) แต่ไม่ได้ OT 1.25x
+              phDaysWorked++;
               dayHolBase = Number(cfg.holidayWage || 0);
               dayOt250 = Number(cfg.otHoliday || 0);
               totalHolidayBase += dayHolBase;
               totalOt250 += dayOt250;
             } else {
+              // วันทำงานปกติ (D หรือ N): ได้ค่าแรง 400 + OT 1.25x (250)
               normalDays++;
               dayBase = Number(cfg.baseWage || 0);
               dayOt125 = Number(cfg.otNormal || 0);
@@ -2349,10 +2383,11 @@ createApp({
             });
           });
 
+          const phDays = phDaysWorked + phDaysOff;
           // ตรวจวันลาจาก leaveRecords ในรอบนี้ด้วย เพื่อความแม่นยำ
           const leaveRecCount = leaveRecords.value.filter(r => r.cycleId === cycleId && r.guardNo === guard.no).length;
           const totalLeave = Math.max(leaveDays, leaveRecCount);
-          const workDays = normalDays + phDays;
+          const workDays = normalDays + phDaysWorked;
           const eligibleDiligence = !guard.isSpare && totalLeave === 0 && workDays >= Number(cfg.diligenceMinDays || 20);
           const diligencePay = eligibleDiligence ? workDays * Number(cfg.diligencePerDay || 0) : 0;
           const totalPay = totalBase + totalOt125 + totalHolidayBase + totalOt250 + totalPositionPay + diligencePay;
@@ -2365,6 +2400,8 @@ createApp({
             isSpare: guard.isSpare,
             normalDays,
             phDays,
+            phDaysWorked,
+            phDaysOff,
             workDays,
             offDays,
             leaveDays: totalLeave,
