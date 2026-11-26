@@ -46,9 +46,13 @@ service cloud.firestore {
     match /leaveRecords/{doc=**} { allow read: if true; allow write: if isActiveStaff(); }
     match /roster/{doc=**}       { allow read: if true; allow write: if isActiveStaff(); }
     match /spareArrivals/{doc=**} { allow read: if true; allow write: if isActiveStaff(); }
+    match /positionSwaps/{doc=**} { allow read: if true; allow write: if isActiveStaff(); }
 
     // ---- ตั้งค่า / วันนักขัตฤกษ์: แก้ได้เฉพาะ Admin ----
     match /settings/{doc=**}     { allow read: if true; allow write: if isAdmin(); }
+
+    // ---- อัตราค่าแรง: อ่านและแก้ไขได้เฉพาะ Admin เท่านั้น ----
+    match /wageSettings/{doc=**} { allow read, write: if isAdmin(); }
 
     // ---- อย่างอื่นทั้งหมดปิด ----
     match /{document=**} {
