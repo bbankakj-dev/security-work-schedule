@@ -1716,6 +1716,16 @@ createApp({
         });
       });
 
+      // รวมคนที่เข้าเวรแต่ไม่ถูกวางลง slot ใดเลย (เช่น กลุ่มตำแหน่งที่ปิดตามวัน)
+      rows.forEach(r => {
+        const shiftValue = (r.shifts && dayIdx >= 0 && dayIdx < r.shifts.length) ? r.shifts[dayIdx] : null;
+        const isWorking = !r.isSpare && (shiftType === 'N' ? shiftValue === 'N' : (shiftValue === 'D' || shiftValue === 'PH'));
+        if (isWorking && !occupiedNos.has(r.no) && !resolved.movedOut.has(r.no)) {
+          occupiedNos.add(r.no);
+          if (!excessWorkers.some(w => w.no === r.no)) excessWorkers.push(r);
+        }
+      });
+
       return { slots, openSlots, occupiedNos, excessWorkers };
     }
 
@@ -2041,6 +2051,8 @@ createApp({
     const signStartDate = ref(fmtDate(new Date()));
     const signEndDate = ref(fmtDate(new Date()));
     const signMaxDays = 31;
+    const signReassignments = ref({});
+    const signReviewConfirmed = ref('');
     const SIGN_DAY_FULL_TH = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'];
     const SIGN_MONTH_TH = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
       'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
@@ -2068,6 +2080,7 @@ createApp({
         const out = {
           dateString: day.dateString, D: [], N: [],
           notes: { D: [], N: [] },
+          review: { D: [], N: [] },
           dayFullName: SIGN_DAY_FULL_TH[date.getDay()],
           dateThai: `${date.getDate()} ${SIGN_MONTH_TH[date.getMonth()]} ${date.getFullYear() + 543}`,
           holidayName: isPublicHoliday(day.dateString) ? (getHolidayName(day.dateString) || 'วันหยุดนักขัตฤกษ์') : ''
@@ -2077,8 +2090,32 @@ createApp({
         ['D', 'N'].forEach(t => {
           const board = buildDayShiftBoard(date, day.dateString, t, ctx.rows, idx);
           out[t] = board.slots;
+          const usedTargets = new Set();
           board.excessWorkers.forEach(w => {
-            out.notes[t].push(`⚠️ เกินตำแหน่งหลัก (${w.position}): ${w.name} — กรุณาสลับจุดไปลงตำแหน่งที่ว่าง`);
+            const key = `${day.dateString}|${t}|${w.no}`;
+            const hasManualChoice = Object.prototype.hasOwnProperty.call(signReassignments.value, key);
+            const suggested = board.openSlots.find(slot => !usedTargets.has(slot.no));
+            const selectedNo = hasManualChoice
+              ? (signReassignments.value[key] === '' ? '' : Number(signReassignments.value[key]))
+              : (suggested ? suggested.no : '');
+            const target = board.openSlots.find(slot => slot.no === selectedNo) || null;
+            const assigned = !!target && !usedTargets.has(target.no);
+            if (assigned) {
+              usedTargets.add(target.no);
+              const slotIndex = out[t].findIndex(slot => slot.no === target.no);
+              if (slotIndex >= 0) {
+                out[t][slotIndex] = {
+                  ...target, code: w.code || '', name: w.name || '', position: target.position,
+                  dailywork: target.dailywork, kind: 'auto_assigned', sourcePosition: w.position, sourceNo: w.no,
+                  swapNote: `ระบบเสนอให้ย้ายจาก ${w.position} มาแทนตำแหน่งว่าง`
+                };
+              }
+            }
+            const item = { key, worker: w, options: board.openSlots, selectedNo: selectedNo || '', assigned };
+            out.review[t].push(item);
+            out.notes[t].push(assigned
+              ? `⚠️ ตรวจยืนยัน: ${w.name} (${w.position}) → ${target.position} ${target.dailywork ? '(' + target.dailywork + ')' : ''}`
+              : `⚠️ ไม่มีตำแหน่งว่างรองรับ ${w.name} (${w.position}) — กรุณาตรวจสอบก่อนพิมพ์`);
           });
           out[t].forEach((r, i) => {
             const n = i + 1;
@@ -2100,8 +2137,34 @@ createApp({
       });
     });
 
+    const signReviewItems = computed(() => signSheets.value.flatMap(sh =>
+      ['D', 'N'].flatMap(shift => sh.review[shift].map(item => ({
+        ...item, dateString: sh.dateString, shift
+      })))));
+    const signHasReviewItems = computed(() => signReviewItems.value.length > 0);
+    const signReviewSignature = computed(() => JSON.stringify(signSheets.value.map(sh => ({
+      dateString: sh.dateString,
+      D: sh.D.map(r => [r.no, r.code, r.name, r.kind, r.dailywork]),
+      N: sh.N.map(r => [r.no, r.code, r.name, r.kind, r.dailywork]),
+      review: ['D', 'N'].map(t => sh.review[t].map(i => [i.key, i.selectedNo, i.assigned]))
+    }))));
+
+    function setSignReassignment(key, targetNo) {
+      signReassignments.value = { ...signReassignments.value, [key]: targetNo };
+      signReviewConfirmed.value = '';
+    }
+
+    function confirmSignAssignments() {
+      if (!isSupervisor.value || !signHasReviewItems.value) return;
+      signReviewConfirmed.value = signReviewSignature.value;
+    }
+
     function printSignSheet() {
       if (!isSupervisor.value) return;
+      if (signHasReviewItems.value && signReviewConfirmed.value !== signReviewSignature.value) {
+        alert('⚠️ กรุณาตรวจสอบ/แก้ไขตำแหน่งที่ระบบเสนอ แล้วกดยืนยันก่อนพิมพ์ใบลงชื่อ');
+        return;
+      }
       // ใส่คลาสพิเศษให้ body ระหว่างพิมพ์ เพื่อซ่อนส่วนอื่นของเว็บแบบ display:none (กันหน้าว่างท้ายเอกสาร)
       const cls = 'print-sign-mode';
       document.body.classList.add(cls);
@@ -3123,6 +3186,12 @@ createApp({
       signRangeDays,
       signRangeTruncated,
       signSheets,
+      signReviewItems,
+      signHasReviewItems,
+      signReviewConfirmed,
+      signReviewSignature,
+      setSignReassignment,
+      confirmSignAssignments,
       printSignSheet,
       printSchedule,
       buildScheduleCsv,

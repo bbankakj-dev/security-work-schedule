@@ -957,6 +957,32 @@
           ⚠️ เลือกช่วงวันที่ยาวเกิน {{ signMaxDays }} วัน ระบบแสดงเฉพาะ {{ signMaxDays }} วันแรก กรุณาแบ่งช่วงวันที่
         </div>
 
+        <div v-if="signHasReviewItems" class="no-print bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-3">
+          <div>
+            <h3 class="font-bold text-amber-950">⚠️ ตรวจสอบผู้ปฏิบัติงานที่เกินตำแหน่งหลัก</h3>
+            <p class="text-xs text-amber-900 mt-1">ระบบเสนอชื่อผู้ปฏิบัติงานที่เกินจากตำแหน่งหลักไปเติมตำแหน่งว่างในกะเดียวกัน กรุณาตรวจสอบหรือเปลี่ยนตำแหน่งก่อนยืนยัน การจัดนี้ใช้กับใบลงชื่อเท่านั้น ไม่เปลี่ยนตารางเวรหลัก</p>
+          </div>
+          <div class="space-y-2">
+            <div v-for="item in signReviewItems" :key="item.key" class="grid grid-cols-1 md:grid-cols-[1fr_1fr] gap-2 items-center bg-white border border-amber-200 rounded-lg p-2 text-xs">
+              <div><b>{{ item.dateString }}</b> · กะ{{ item.shift }} · <b>{{ item.worker.name }}</b> ({{ item.worker.code }})<br><span class="text-slate-500">ตำแหน่งหลัก: {{ item.worker.position }}</span></div>
+              <div>
+                <label class="block text-[10px] text-slate-600 mb-0.5">ตำแหน่งที่ให้ปฏิบัติงาน:</label>
+                <select :value="item.selectedNo" @change="setSignReassignment(item.key, $event.target.value)" class="w-full border border-slate-300 rounded px-2 py-1.5 bg-white">
+                  <option value="">ยังไม่จัดตำแหน่ง (คงคำเตือนไว้)</option>
+                  <option v-for="target in item.options" :key="target.no" :value="target.no">{{ target.position }} · {{ target.dailywork || ('No.' + target.no) }}</option>
+                </select>
+                <p v-if="item.assigned" class="text-emerald-700 mt-1">เสนอให้ลง {{ (item.options.find(o => o.no === Number(item.selectedNo)) || {}).position }} · {{ (item.options.find(o => o.no === Number(item.selectedNo)) || {}).dailywork }}</p>
+                <p v-else class="text-red-700 mt-1">ยังไม่มีตำแหน่งรองรับ หรือเลือกซ้ำกับคนอื่น</p>
+              </div>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-3">
+            <button @click="confirmSignAssignments" class="bg-amber-600 hover:bg-amber-500 text-white font-bold px-3 py-2 rounded-lg text-xs">ยืนยันการจัดตำแหน่งเพื่อพิมพ์</button>
+            <span v-if="signReviewConfirmed === signReviewSignature" class="text-emerald-700 text-xs font-semibold">✓ ยืนยันแล้ว — เปลี่ยนข้อมูลหรือแก้ตำแหน่งเมื่อใด ต้องยืนยันใหม่</span>
+            <span v-else class="text-amber-900 text-xs">ต้องยืนยันก่อนกดพิมพ์</span>
+          </div>
+        </div>
+
         <div id="printableSignArea" class="space-y-4">
           <div v-for="sh in signSheets" :key="sh.dateString"
                class="sign-page bg-white p-4 sm:p-5 rounded-xl shadow-sm border border-slate-200 text-slate-900 space-y-2">
